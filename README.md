@@ -4,6 +4,8 @@ Application web Node.js qui orchestre une analyse multi-modèles avec recherche 
 
 **Version actuelle : 3.2.0**
 
+> 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
+
 ## À propos de cette version
 
 Ce dépôt est un fork corrigé de [`newbizai2023-ops/Boucle-Contradictoire`](https://github.com/newbizai2023-ops/Boucle-Contradictoire), à la suite d'une revue de code. Le fonctionnement applicatif est inchangé ; les corrections suivantes ont été appliquées :
