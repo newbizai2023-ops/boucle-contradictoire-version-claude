@@ -38,6 +38,10 @@
 }
 
 * { box-sizing: border-box; }
+/* [hidden] doit toujours gagner : sans ce !important, une classe de même spécificité qui pose
+   son propre "display" (ex. .empty{display:grid}, .grid{display:grid}) neutralise l'attribut
+   hidden et laisse l'élément visible malgré `element.hidden = true` en JS. */
+[hidden] { display: none !important; }
 
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) {
@@ -172,35 +176,32 @@ button:focus-visible, .tab:focus-visible, a:focus-visible {
 .progress span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--primary), var(--accent)); transition: width .3s; }
 .current-step { font-weight: 700; color: var(--text); margin: 12px 0; }
 
-.activity-feed { list-style: none; margin: 18px 0 0; padding: 0; max-height: 420px; overflow: auto; overflow-x: hidden; min-height: 90px; scroll-behavior: smooth; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.analysis-notice { font-size: .86rem; border-left: 3px solid var(--primary); padding-left: 11px; }
+
+/* Flux unifié : chaque étape (rédaction, sources, audit, arbitrage…) est une seule entrée qui
+   passe de "en cours" à enrichie avec son constat détaillé, plutôt que deux entrées séparées. */
+.activity-feed { list-style: none; margin: 18px 0 0; padding: 0; max-height: 560px; overflow: auto; overflow-x: hidden; min-height: 90px; scroll-behavior: smooth; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .feed-item { display: grid; grid-template-columns: 18px 1fr; gap: 10px; position: relative; padding-bottom: 16px; min-width: 0; }
 .feed-item > div { min-width: 0; }
 .feed-item:not(:last-child)::before { content: ""; position: absolute; left: 8px; top: 16px; bottom: 0; width: 2px; background: var(--line); }
-.feed-marker { width: 16px; height: 16px; margin-top: 3px; border-radius: 50%; border: 3px solid var(--panel); background: var(--primary); box-shadow: 0 0 0 1px var(--line); z-index: 1; }
-.feed-item.source .feed-marker { background: var(--warn); }
+.feed-marker { width: 16px; height: 16px; margin-top: 3px; border-radius: 50%; border: 3px solid var(--panel); background: var(--primary); box-shadow: 0 0 0 1px var(--line); z-index: 1; transition: background-color .2s; }
+.feed-item.source-ping .feed-marker { background: var(--warn); }
+.feed-item.sources .feed-marker { background: var(--warn); }
 .feed-item.audit .feed-marker { background: #77a8ff; }
+.feed-item.documents .feed-marker { background: var(--accent); }
+.feed-item.arbitration .feed-marker { background: #bf78ff; }
 .feed-item.complete .feed-marker { background: var(--success); }
 .feed-item.error .feed-marker { background: var(--danger); }
-.feed-item time { display: block; margin-bottom: 3px; color: var(--muted); font-size: .7rem; }
+.feed-item.pending .feed-marker { background: var(--muted); }
+.feed-item-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 3px; }
+.feed-item time { color: var(--muted); font-size: .7rem; }
+.feed-item .feed-category { text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-size: .66rem; font-weight: 800; }
 .feed-item p { margin: 2px 0 0; color: var(--text); font-size: .9rem; overflow-wrap: anywhere; word-break: break-word; }
+.feed-item details { margin: 6px 0 0; }
+.feed-item details summary { cursor: pointer; color: var(--muted); font-size: .78rem; }
+.feed-item pre { max-height: 220px; font-size: .75rem; margin-top: 6px; }
 .feed-item.error > div { border: 1px solid color-mix(in srgb, var(--danger) 42%, var(--line)); background: color-mix(in srgb, var(--danger) 14%, transparent); border-radius: 14px; padding: 12px; }
 .feed-item.error { padding-bottom: 14px; }
-
-.analysis-panel { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 18px; }
-.analysis-notice { font-size: .86rem; border-left: 3px solid var(--primary); padding-left: 11px; }
-.analysis-feed { display: grid; gap: 10px; max-height: 460px; overflow: auto; padding-right: 4px; scroll-behavior: smooth; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.analysis-entry { border: 1px solid var(--line); border-left: 4px solid var(--primary); border-radius: 14px; padding: 12px; background: var(--panel-soft); }
-.analysis-entry.documents { border-left-color: var(--accent); }
-.analysis-entry.sources { border-left-color: var(--warn); }
-.analysis-entry.audit { border-left-color: #77a8ff; }
-.analysis-entry.arbitration { border-left-color: #bf78ff; }
-.analysis-entry.error { border-left-color: var(--danger); }
-.analysis-entry > div { display: flex; justify-content: space-between; gap: 10px; }
-.analysis-entry > div span { text-transform: uppercase; letter-spacing: .08em; color: var(--accent); font-size: .68rem; font-weight: 800; }
-.analysis-entry time { color: var(--muted); font-size: .72rem; }
-.analysis-entry p { margin: 8px 0; }
-.analysis-entry details { margin: 5px 0 0; padding-top: 6px; }
-.analysis-entry pre { max-height: 220px; font-size: .75rem; }
 
 .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
 .metrics article { border: 1px solid var(--line); border-radius: 15px; padding: 13px; background: color-mix(in srgb, var(--text) 3%, transparent); }

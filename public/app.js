@@ -100,7 +100,7 @@ async function init() {
   syncFirecrawlAvailability();
   renderKeyStatus($('#apiKey'), 'openrouter', $('#apiKeyHelp'), $('#apiKeyIcon'), Boolean(health.hasOpenRouterKey));
   const [historyResult, dashboardResult] = await Promise.allSettled([loadHistory(), loadDashboard()]);
-  if (currentRunId) { $('#empty').hidden=true; $('#results').hidden=true; $('#progressPanel').hidden=false; $('#analysisPanel').hidden=false; setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
+  if (currentRunId) { $('#empty').hidden=true; $('#results').hidden=true; $('#progressPanel').hidden=false; resetFeed(); setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
   if (historyResult.status === 'rejected') $('#historyList').innerHTML = `<p class="error">Historique indisponible : ${esc(historyResult.reason.message)}</p>`;
   if (dashboardResult.status === 'rejected') $('#dashboard').innerHTML = `<p class="error">Tableau de bord indisponible : ${esc(dashboardResult.reason.message)}</p>`;
   updateTabsOverflow();
@@ -137,7 +137,7 @@ $('#reviewForm').addEventListener('submit', async event => {
   if (!$('#request').checkValidity()) return showError(new Error('La demande doit contenir au moins 20 caractères.'));
   if (!validateKeys(true)) return;
   $('#submitButton').disabled = true; $('#submitButton').textContent='Initialisation…';
-  $('#empty').hidden=true; $('#progressPanel').hidden=false; $('#analysisPanel').hidden=false; $('#timeline').innerHTML=''; $('#analysisFeed').innerHTML=''; addTimeline('Analyse demandée au serveur', 'start'); setProgress(1,'Envoi de la demande…');
+  $('#empty').hidden=true; $('#progressPanel').hidden=false; resetFeed(); appendFeedItem('start','Analyse demandée au serveur'); setProgress(1,'Envoi de la demande…');
   const formData = new FormData();
   formData.append('request',$('#request').value);
   formData.append('autoModel',String(isChecked('#autoModel')));
@@ -152,42 +152,89 @@ $('#reviewForm').addEventListener('submit', async event => {
   [...$('#files').files].forEach(file=>formData.append('files',file));
   try {
     const { id } = await json('/api/jobs',{method:'POST',body:formData}); currentRunId=id;
-    $('#results').hidden=true; addTimeline('Tâche créée', 'start'); setProgress(2,'Initialisation de l’analyse'); watchJob(id);
-  } catch(error) { addTimeline(`Échec du lancement : ${error.message}`, 'error'); showError(error); resetButton(); }
+    $('#results').hidden=true; appendFeedItem('start','Tâche créée'); setProgress(2,'Initialisation de l’analyse'); watchJob(id);
+  } catch(error) { appendFeedItem('error',`Échec du lancement : ${error.message}`); showError(error); resetButton(); }
 });
+
+// ---------------------------------------------------------------------------
+// Flux unifié de suivi : chaque étape (rédaction, sources, audit, arbitrage…)
+// démarre comme une entrée "en cours" (progress) puis s'enrichit en place avec
+// son constat détaillé (insight), plutôt que de produire deux entrées séparées.
+// ---------------------------------------------------------------------------
+let feedSteps = new Map();
+function resetFeed(){ feedSteps = new Map(); $('#timeline').innerHTML = ''; }
+function stepKey(kind, cycle){ return `${kind}:${cycle ?? ''}`; }
+// Les catégories/étapes ci-dessous ont un point de départ (progress) et un résultat
+// (insight) à faire coïncider dans une même entrée ; "arbiter" et "arbitration"
+// désignent la même étape finale sous deux noms différents.
+function progressStepKey(payload){
+  if (['draft','sources','audit'].includes(payload.step)) return stepKey(payload.step, payload.cycle);
+  if (payload.step === 'arbiter') return stepKey('arbitration', null);
+  return null;
+}
+function insightStepKey(payload){
+  if (payload.category === 'arbitration') return stepKey('arbitration', null);
+  if (['draft','sources','audit'].includes(payload.category)) return stepKey(payload.category, payload.cycle);
+  return null;
+}
+function nowLabel(){ return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function feedItemInner(kind, time, message, details){
+  const showCategory = !['start','complete','error','source-ping','progress'].includes(kind);
+  const category = showCategory ? `<span class="feed-category">${esc(kind)}</span>` : '';
+  const detailsHtml = details ? `<details><summary>Détails</summary><pre>${esc(JSON.stringify(details,null,2))}</pre></details>` : '';
+  return `<span class="feed-marker" aria-hidden="true"></span><div><div class="feed-item-head"><time>${esc(time)}</time>${category}</div><p>${esc(message)}</p>${detailsHtml}</div>`;
+}
+function appendFeedItem(kind, message, details){
+  const feed = $('#timeline');
+  const li = document.createElement('li');
+  li.className = `feed-item ${kind}`;
+  li.innerHTML = feedItemInner(kind, nowLabel(), message, details);
+  feed.append(li);
+  scrollFeedToLatest(feed);
+  return li;
+}
+// Ajoute une entrée "en cours" pour une étape qui sera enrichie à la réception de son insight.
+function startFeedStep(key, kind, message){
+  const li = appendFeedItem(kind, message);
+  li.classList.add('pending');
+  feedSteps.set(key, li);
+}
+// Enrichit en place l'entrée "en cours" correspondante avec son résultat ; ajoute une nouvelle
+// entrée si aucune étape en attente ne correspond (constat sans point de départ, ex. stratégie).
+function resolveFeedStep(key, kind, message, details){
+  const pending = key ? feedSteps.get(key) : null;
+  if (pending) {
+    const time = pending.querySelector('time')?.textContent || nowLabel();
+    pending.className = `feed-item ${kind}`;
+    pending.innerHTML = feedItemInner(kind, time, message, details);
+    scrollFeedToLatest($('#timeline'));
+    feedSteps.delete(key);
+    return;
+  }
+  appendFeedItem(kind, message, details);
+}
 function watchJob(id) {
   if (currentEventSource) currentEventSource.close();
   const es = new EventSource(`/api/jobs/${id}/events`);
   currentEventSource = es;
-  const add = e => { const d=JSON.parse(e.data); addTimeline(d.message || d.type, d.type); if (d.percent != null) setProgress(d.percent,d.message); };
-  ['progress','models','source','audit'].forEach(type=>es.addEventListener(type,add));
-  es.addEventListener('insight', e=>{ const d=JSON.parse(e.data); addAnalysis(d); });
-  es.addEventListener('complete', e=>{ es.close(); const d=JSON.parse(e.data); addTimeline('Analyse terminée', 'complete'); renderResult(d.result); setProgress(100,'Terminé'); resetButton(); loadHistory().catch(showError); loadDashboard().catch(showError); });
-  es.addEventListener('error', e=>{ if(e.data){ const d=JSON.parse(e.data); showError(new Error(d.message)); addTimeline(d.message, 'error'); addAnalysis({category:'error',message:d.message}); } es.close(); resetButton(); });
+  es.addEventListener('progress', e => {
+    const d = JSON.parse(e.data);
+    if (d.percent != null) setProgress(d.percent, d.message);
+    const key = progressStepKey(d);
+    const kind = d.step || 'progress';
+    if (key) startFeedStep(key, kind, d.message); else appendFeedItem(kind, d.message);
+  });
+  es.addEventListener('source', e => { const d=JSON.parse(e.data); appendFeedItem('source-ping', d.message); });
+  // L'événement "audit" (scores bruts) est absorbé par le constat "insight" équivalent, plus complet.
+  es.addEventListener('insight', e => { const d=JSON.parse(e.data); resolveFeedStep(insightStepKey(d), d.category||'analyse', d.message||'', d.details); });
+  es.addEventListener('complete', e=>{ es.close(); const d=JSON.parse(e.data); appendFeedItem('complete','Analyse terminée'); renderResult(d.result); setProgress(100,'Terminé'); resetButton(); loadHistory().catch(showError); loadDashboard().catch(showError); });
+  es.addEventListener('error', e=>{ if(e.data){ const d=JSON.parse(e.data); showError(new Error(d.message)); appendFeedItem('error', d.message); } es.close(); resetButton(); });
 }
 function setProgress(p,t){ const value=Math.min(100,Math.max(0,Number(p)||0)); $('#progressBar').style.width=`${value}%`; $('#progressText').textContent=t||''; $('#progressPercent').textContent=`${Math.round(value)} %`; $('.progress').setAttribute('aria-valuenow',String(value)); }
 function scrollFeedToLatest(feed){
   requestAnimationFrame(()=>{
     feed.scrollTo({top:feed.scrollHeight,behavior:'smooth'});
   });
-}
-function addTimeline(text,type='progress'){
-  const feed=$('#timeline');
-  const li=document.createElement('li');
-  li.className=`feed-item ${type}`;
-  const time=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  li.innerHTML=`<span class="feed-marker" aria-hidden="true"></span><div><time>${esc(time)}</time><p>${esc(text)}</p></div>`;
-  feed.append(li);
-  scrollFeedToLatest(feed);
-}
-function addAnalysis(data){
-  const feed=$('#analysisFeed');
-  const article=document.createElement('article');
-  article.className=`analysis-entry ${data.category||'general'}`;
-  const time=new Date(data.at||Date.now()).toLocaleTimeString();
-  article.innerHTML=`<div><span>${esc(data.category||'analyse')}</span><time>${esc(time)}</time></div><p>${esc(data.message||'')}</p>${data.details?`<details><summary>Détails</summary><pre>${esc(JSON.stringify(data.details,null,2))}</pre></details>`:''}`;
-  feed.append(article);
-  scrollFeedToLatest(feed);
 }
 function resetButton(){ $('#submitButton').disabled=false; $('#submitButton').textContent='Lancer la boucle'; }
 function showError(error){ $('#error').textContent=error.message; $('#error').hidden=false; $('#error').scrollIntoView({block:'nearest'}); }

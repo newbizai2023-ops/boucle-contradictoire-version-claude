@@ -93,13 +93,12 @@ Vérifie les informations importantes à l’aide de sources récentes et fiable
   <section class="panel results-panel">
     <div id="empty" class="empty"><div class="loop">↻</div><h2>Prêt pour une contre-analyse</h2><p>La progression, le résultat, les sources, les scores et les coûts apparaîtront ici.</p></div>
     <div id="progressPanel" hidden>
-      <div class="section-title"><div><p class="eyebrow">TRAITEMENT EN COURS</p><h2>Étapes</h2></div><strong id="progressPercent">0 %</strong></div>
+      <div class="section-title"><div><p class="eyebrow">TRAITEMENT EN COURS</p><h2>Suivi de l’analyse</h2></div><strong id="progressPercent">0 %</strong></div>
       <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progressBar"></span></div>
       <p id="progressText" class="current-step"></p>
-      <p class="analysis-notice">Aperçu rapide de chaque étape. Le détail de ce que les modèles constatent apparaît ci-dessous, dans « Constats détaillés ».</p>
+      <p class="analysis-notice">Chaque étape s’enrichit dès que le constat correspondant est disponible (dépliable via « Détails »), sans exposer la chaîne de pensée privée des modèles.</p>
       <ol id="timeline" class="activity-feed" aria-live="polite"></ol>
     </div>
-    <section id="analysisPanel" class="analysis-panel" hidden><div class="section-title"><h2>Constats détaillés</h2><span class="badge">Résumé explicable</span></div><p class="analysis-notice">Cette zone présente les constats et décisions utiles derrière chaque étape, sans exposer la chaîne de pensée privée des modèles.</p><div id="analysisFeed" class="analysis-feed" aria-live="polite"></div></section>
     <div id="results" hidden><div class="metrics"><article><span>Statut</span><strong id="status">—</strong></article><article><span>Score final</span><strong id="score">—</strong></article><article><span>Appels</span><strong id="calls">—</strong></article><article><span>Coût</span><strong id="cost">—</strong></article></div>
       <div class="tabs-wrap"><nav class="tabs"><button class="tab active" data-tab="document" type="button">Document</button><button class="tab" data-tab="scores" type="button">Scores</button><button class="tab" data-tab="sources" type="button">Sources</button><button class="tab" data-tab="audits" type="button">Audits</button><button class="tab" data-tab="usage" type="button">Consommation</button></nav></div>
       <section id="document" class="tab-panel active"><div class="toolbar"><button id="copy" class="secondary">Copier</button><a data-export="md">Markdown</a><a data-export="pdf">PDF</a><a data-export="docx">Word</a><a data-export="xlsx">Excel</a></div><pre id="finalDocument"></pre><div id="arbitration"></div></section>

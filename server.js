@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 // Configuration
 // ---------------------------------------------------------------------------
 
-const RELEASE = "3.1.0";
+const RELEASE = "3.2.0";
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -661,34 +661,35 @@ async function executeJob(job, user, body) {
   emit(job, "insight", { category: "strategy", message: `Tâche classée « ${task} ». Claude rédige, GPT audite et Grok arbitre.`, details: { models } });
   if (attachments.length) emit(job, "insight", { category: "documents", message: `${attachments.length} document(s) extrait(s) et ajouté(s) au contexte.`, details: { files: result.attachments } });
 
-  emit(job, "progress", { step: "draft", percent: 8, message: "Rédaction initiale avec recherche web" });
+  emit(job, "progress", { step: "draft", cycle: 0, percent: 8, message: "Rédaction initiale avec recherche web" });
   const first = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: writerPrompt(task, request), web: true });
   let document = first.content;
   result.versions.push({ cycle: 0, content: document });
   result.calls.push({ role: "redaction", ...first });
   result.totalCost += first.usage.cost;
-  emit(job, "insight", { category: "draft", message: `Le rédacteur a produit une première version de ${document.length.toLocaleString("fr-FR")} caractères.`, details: { model: first.model, citations: first.annotations?.length || 0 } });
+  emit(job, "insight", { category: "draft", cycle: 0, message: `Le rédacteur a produit une première version de ${document.length.toLocaleString("fr-FR")} caractères.`, details: { model: first.model, citations: first.annotations?.length || 0 } });
 
   for (let cycle = 1; cycle <= maxCycles; cycle += 1) {
-    emit(job, "progress", { step: "sources", percent: 12 + cycle * 12, message: `Cycle ${cycle} : vérification stricte des sources` });
+    emit(job, "progress", { step: "sources", cycle, percent: 12 + cycle * 12, message: `Cycle ${cycle} : vérification stricte des sources` });
     const verified = firecrawlEnabled
       ? await verifySources(document, result.calls, firecrawlApiKey, job)
       : annotationSources(result.calls).map(source => ({ ...source, accessible: null, reason: "Vérification Firecrawl désactivée", sourceClass: sourceClass(source.url) }));
     result.sources = verified;
     emit(job, "insight", {
       category: "sources",
+      cycle,
       message: `Sources : ${verified.filter(s => s.accessible === true).length} accessibles, ${verified.filter(s => s.accessible === false).length} inaccessibles, ${verified.filter(s => s.accessible === null).length} non contrôlées.`,
       details: { total: verified.length }
     });
 
-    emit(job, "progress", { step: "audit", percent: 22 + cycle * 14, message: `Cycle ${cycle} : audit détaillé` });
+    emit(job, "progress", { step: "audit", cycle, percent: 22 + cycle * 14, message: `Cycle ${cycle} : audit détaillé` });
     const auditCall = await callOpenRouter({ apiKey, model: models.auditor, system: auditorSystem, user: auditPrompt(request, document, verified, task), json: true, web: false });
     const audit = parseJson(auditCall.content, "L'audit");
     result.audits.push({ cycle, ...audit });
     result.calls.push({ role: "audit", ...auditCall });
     result.totalCost += auditCall.usage.cost;
     emit(job, "audit", { cycle, score: audit.score_global, scores: audit.scores, anomalies: audit.anomalies?.length || 0 });
-    emit(job, "insight", { category: "audit", message: `Cycle ${cycle} : score ${audit.score_global}/100, ${audit.anomalies?.length || 0} anomalie(s). ${audit.resume || ""}`, details: { scores: audit.scores, decision: audit.decision } });
+    emit(job, "insight", { category: "audit", cycle, message: `Cycle ${cycle} : score ${audit.score_global}/100, ${audit.anomalies?.length || 0} anomalie(s). ${audit.resume || ""}`, details: { scores: audit.scores, decision: audit.decision } });
 
     const severe = (audit.anomalies || []).some(a => ["critique", "elevee"].includes(String(a.gravite || "").toLowerCase()));
     const inaccessible = (audit.sources_non_verifiees || []).length > 0;
@@ -698,7 +699,7 @@ async function executeJob(job, user, body) {
       break;
     }
 
-    emit(job, "progress", { step: "correction", percent: 30 + cycle * 16, message: `Cycle ${cycle} : correction du document` });
+    emit(job, "progress", { step: "correction", cycle, percent: 30 + cycle * 16, message: `Cycle ${cycle} : correction du document` });
     const correctionPrompt = `${taskGuidance[task] || taskGuidance.general_analysis}
 
 Corrige intégralement le document selon l'audit. Traite chaque anomalie critique et élevée. Supprime ou reformule toute affirmation non étayée. Préserve les éléments vérifiés. Rends tous les calculs reproductibles. Signale les divergences qui ne peuvent pas être tranchées. Maintiens la structure minimale imposée.

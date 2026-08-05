@@ -2,7 +2,7 @@
 
 Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historique PostgreSQL, exports et tableau de bord de consommation.
 
-**Version actuelle : 3.0.0**
+**Version actuelle : 3.2.0**
 
 ## À propos de cette version
 
@@ -25,7 +25,8 @@ Ce dépôt est un fork corrigé de [`newbizai2023-ops/Boucle-Contradictoire`](ht
 - Badge « Non configurée » d'OpenRouter distingué de celui de Firecrawl (rouge/bloquant vs ambre/optionnel) : sans clé OpenRouter aucune analyse n'est possible, alors que Firecrawl n'est qu'une amélioration.
 - Ajout d'un bloc « Comment ça marche » visible avant connexion, et réduction de la hauteur excessive du panneau de résultats vide.
 - Les sélecteurs de modèles (Rédacteur/Auditeur/Arbitre) sont masqués entièrement en mode automatique, au lieu d'être grisés tout en occupant de l'espace.
-- Distinction claire entre le fil « Étapes » (progression courte) et les « Constats détaillés » (explications complètes), pour réduire la sensation de doublon.
+- **Fusion complète des deux fils de suivi en un seul** (« Suivi de l’analyse ») : chaque étape (rédaction, sources, audit, arbitrage) apparaît une seule fois, d'abord comme « en cours » puis enrichie en place avec son constat détaillé (dépliable), au lieu de produire deux entrées séparées et redondantes dans deux panneaux différents. Le serveur transmet désormais un `cycle` explicite sur les événements `progress`/`insight` pour permettre cet appariement fiable côté client.
+- **Correction d'un bug de rendu `hidden`** découvert pendant les tests de la fusion ci-dessus : `.empty{display:grid}` et `.grid{display:grid}` neutralisaient silencieusement l'attribut `hidden` (même spécificité CSS) — le panneau vide restait visible pendant une analyse en cours, et les sélecteurs de modèles masqués par la correction précédente ne l'étaient en réalité jamais visuellement. Un `[hidden]{display:none!important}` global corrige ce problème pour tous les éléments concernés, présents ou futurs.
 - Ajout de textes d'aide sous « Cycles maximum » / « Score cible » et d'une indication de durée typique près du bouton d'envoi.
 - Fusion des media queries dupliquées (950px/1200px) en un seul point de bascule responsive.
 - Libellés de modèles raccourcis pour éviter la troncature dans les listes déroulantes sur mobile.
