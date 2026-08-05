@@ -13,8 +13,16 @@
     <h1>Boucle Contradictoire</h1>
     <p>Claude rédige, GPT audite, Grok arbitre — avec recherche web, contrôle Firecrawl et traçabilité.</p>
   </div>
-  <div class="header-actions"><span id="release" class="badge">Release…</span><span id="health" class="badge">Vérification…</span><div id="auth"></div></div>
+  <div class="header-actions"><span id="release" class="badge">Release…</span><span id="health" class="badge">Vérification…</span><a href="#history" class="badge link">Historique ↓</a><div id="auth"></div></div>
 </header>
+<section class="how-it-works">
+  <p class="eyebrow">COMMENT ÇA MARCHE</p>
+  <div class="how-it-works-steps">
+    <div class="how-it-works-step"><span class="step-number">1</span><strong>Tu décris la demande</strong><small>Question, étude ou document à produire, avec les fichiers utiles en pièce jointe.</small></div>
+    <div class="how-it-works-step"><span class="step-number">2</span><strong>Claude rédige, GPT audite, Grok arbitre</strong><small>Sources vérifiées, corrections successives jusqu’au score cible, puis décision finale indépendante.</small></div>
+    <div class="how-it-works-step"><span class="step-number">3</span><strong>Tu récupères un document sourcé</strong><small>Scores détaillés, sources contrôlées, coûts et export Markdown, PDF, Word ou Excel.</small></div>
+  </div>
+</section>
 <main id="app" hidden>
   <section class="panel form-panel">
     <form id="reviewForm" enctype="multipart/form-data" novalidate>
@@ -49,12 +57,15 @@ Vérifie les informations importantes à l’aide de sources récentes et fiable
           <span class="switch-row"><input id="webSearch" type="checkbox" disabled><span><strong>Vérification approfondie des sources via Firecrawl</strong><small id="webSearchHelp">Saisis une clé Firecrawl valide pour activer cette option. La recherche Web OpenRouter reste active.</small></span></span>
         </label>
 
-        <div id="models" class="grid muted-block disabled">
-          <div><label for="writerModel">Rédacteur</label><select id="writerModel"><option value="~anthropic/claude-opus-latest">Claude Opus — dernière version</option><option value="~anthropic/claude-sonnet-latest" selected>Claude Sonnet — dernière version</option><option value="openai/gpt-5.6-sol">GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi — dernière version</option><option value="~x-ai/grok-latest">Grok — dernière version</option></select></div>
-          <div><label for="auditorModel">Auditeur</label><select id="auditorModel"><option value="~anthropic/claude-opus-latest">Claude Opus — dernière version</option><option value="~anthropic/claude-sonnet-latest">Claude Sonnet — dernière version</option><option value="openai/gpt-5.6-sol" selected>GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi — dernière version</option><option value="~x-ai/grok-latest">Grok — dernière version</option></select></div>
-          <div><label for="arbiterModel">Arbitre</label><select id="arbiterModel"><option value="~anthropic/claude-opus-latest">Claude Opus — dernière version</option><option value="~anthropic/claude-sonnet-latest">Claude Sonnet — dernière version</option><option value="openai/gpt-5.6-sol">GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi — dernière version</option><option value="~x-ai/grok-latest" selected>Grok — dernière version</option></select></div>
+        <div id="models" class="grid" hidden>
+          <div><label for="writerModel">Rédacteur</label><select id="writerModel"><option value="~anthropic/claude-opus-latest">Claude Opus</option><option value="~anthropic/claude-sonnet-latest" selected>Claude Sonnet</option><option value="openai/gpt-5.6-sol">GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi</option><option value="~x-ai/grok-latest">Grok</option></select></div>
+          <div><label for="auditorModel">Auditeur</label><select id="auditorModel"><option value="~anthropic/claude-opus-latest">Claude Opus</option><option value="~anthropic/claude-sonnet-latest">Claude Sonnet</option><option value="openai/gpt-5.6-sol" selected>GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi</option><option value="~x-ai/grok-latest">Grok</option></select></div>
+          <div><label for="arbiterModel">Arbitre</label><select id="arbiterModel"><option value="~anthropic/claude-opus-latest">Claude Opus</option><option value="~anthropic/claude-sonnet-latest">Claude Sonnet</option><option value="openai/gpt-5.6-sol">GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi</option><option value="~x-ai/grok-latest" selected>Grok</option></select></div>
         </div>
-        <div class="grid compact-grid"><div><label for="maxCycles">Cycles maximum</label><input id="maxCycles" type="number" min="1" max="5" value="3"></div><div><label for="minScore">Score cible</label><input id="minScore" type="number" min="50" max="100" value="90"></div></div>
+        <div class="grid compact-grid">
+          <div><label for="maxCycles">Cycles maximum</label><input id="maxCycles" type="number" min="1" max="5" value="3"><small>Plus de cycles = plus de chances d’atteindre le score cible, mais plus de temps et de coût.</small></div>
+          <div><label for="minScore">Score cible</label><input id="minScore" type="number" min="50" max="100" value="90"><small>Score d’audit (sur 100) à atteindre avant l’arbitrage final.</small></div>
+        </div>
       </div>
 
       <div class="form-section api-configuration">
@@ -74,6 +85,7 @@ Vérifie les informations importantes à l’aide de sources récentes et fiable
       </div>
 
       <button id="submitButton" type="submit">Lancer la boucle</button>
+      <p class="hint">Une analyse dure généralement 2 à 5 minutes selon le nombre de cycles et le nombre de sources à vérifier.</p>
       <p id="error" class="error" role="alert" hidden></p>
     </form>
   </section>
@@ -81,19 +93,20 @@ Vérifie les informations importantes à l’aide de sources récentes et fiable
   <section class="panel results-panel">
     <div id="empty" class="empty"><div class="loop">↻</div><h2>Prêt pour une contre-analyse</h2><p>La progression, le résultat, les sources, les scores et les coûts apparaîtront ici.</p></div>
     <div id="progressPanel" hidden>
-      <div class="section-title"><div><p class="eyebrow">TRAITEMENT EN COURS</p><h2>Fil de progression</h2></div><strong id="progressPercent">0 %</strong></div>
+      <div class="section-title"><div><p class="eyebrow">TRAITEMENT EN COURS</p><h2>Étapes</h2></div><strong id="progressPercent">0 %</strong></div>
       <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progressBar"></span></div>
       <p id="progressText" class="current-step"></p>
+      <p class="analysis-notice">Aperçu rapide de chaque étape. Le détail de ce que les modèles constatent apparaît ci-dessous, dans « Constats détaillés ».</p>
       <ol id="timeline" class="activity-feed" aria-live="polite"></ol>
     </div>
-    <section id="analysisPanel" class="analysis-panel" hidden><div class="section-title"><h2>Informations d’analyse</h2><span class="badge">Résumé explicable</span></div><p class="analysis-notice">Cette zone présente les constats et décisions utiles, sans exposer la chaîne de pensée privée des modèles.</p><div id="analysisFeed" class="analysis-feed" aria-live="polite"></div></section>
+    <section id="analysisPanel" class="analysis-panel" hidden><div class="section-title"><h2>Constats détaillés</h2><span class="badge">Résumé explicable</span></div><p class="analysis-notice">Cette zone présente les constats et décisions utiles derrière chaque étape, sans exposer la chaîne de pensée privée des modèles.</p><div id="analysisFeed" class="analysis-feed" aria-live="polite"></div></section>
     <div id="results" hidden><div class="metrics"><article><span>Statut</span><strong id="status">—</strong></article><article><span>Score final</span><strong id="score">—</strong></article><article><span>Appels</span><strong id="calls">—</strong></article><article><span>Coût</span><strong id="cost">—</strong></article></div>
-      <nav class="tabs"><button class="tab active" data-tab="document" type="button">Document</button><button class="tab" data-tab="scores" type="button">Scores</button><button class="tab" data-tab="sources" type="button">Sources</button><button class="tab" data-tab="audits" type="button">Audits</button><button class="tab" data-tab="usage" type="button">Consommation</button></nav>
+      <div class="tabs-wrap"><nav class="tabs"><button class="tab active" data-tab="document" type="button">Document</button><button class="tab" data-tab="scores" type="button">Scores</button><button class="tab" data-tab="sources" type="button">Sources</button><button class="tab" data-tab="audits" type="button">Audits</button><button class="tab" data-tab="usage" type="button">Consommation</button></nav></div>
       <section id="document" class="tab-panel active"><div class="toolbar"><button id="copy" class="secondary">Copier</button><a data-export="md">Markdown</a><a data-export="pdf">PDF</a><a data-export="docx">Word</a><a data-export="xlsx">Excel</a></div><pre id="finalDocument"></pre><div id="arbitration"></div></section>
       <section id="scores" class="tab-panel"></section><section id="sources" class="tab-panel"></section><section id="audits" class="tab-panel"></section><section id="usage" class="tab-panel"></section>
     </div>
   </section>
-  <section class="panel full"><div class="section-title"><h2>Historique</h2><button id="refreshHistory" class="secondary">Actualiser</button></div><div id="history"></div></section>
+  <section id="history" class="panel full"><div class="section-title"><h2>Historique</h2><button id="refreshHistory" class="secondary">Actualiser</button></div><div id="historyList"></div></section>
   <section class="panel full"><h2>Tableau de bord de consommation</h2><div id="dashboard"></div></section>
 </main>
 <footer>Aucune clé API réelle n’est incluse dans le dépôt. · <span id="releaseFooter">Release…</span></footer>

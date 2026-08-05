@@ -58,18 +58,27 @@ function validateKeys(showErrors = false) {
 }
 
 function renderServerApiStatus(health) {
+  // OpenRouter est indispensable (aucune analyse n'est possible sans elle) : une clé absente
+  // est donc affichée en "critical" (rouge), plus sévère que Firecrawl (amélioration optionnelle).
   const items = [
-    ['#openrouterServerStatus', Boolean(health.hasOpenRouterKey)],
-    ['#firecrawlServerStatus', Boolean(health.hasFirecrawlKey)]
+    ['#openrouterServerStatus', Boolean(health.hasOpenRouterKey), 'critical'],
+    ['#firecrawlServerStatus', Boolean(health.hasFirecrawlKey), 'missing']
   ];
-  for (const [selector, configured] of items) {
+  for (const [selector, configured, missingSeverity] of items) {
     const node = $(selector);
     if (!node) continue;
     node.textContent = configured ? 'Configurée sur Render' : 'Non configurée';
-    node.className = `service-status ${configured ? 'configured' : 'missing'}`;
+    node.className = `service-status ${configured ? 'configured' : missingSeverity}`;
   }
   const details = $('#temporaryKeys');
   if (details && (!health.hasOpenRouterKey || !health.hasFirecrawlKey)) details.open = true;
+}
+
+function updateTabsOverflow() {
+  const wrap = document.querySelector('.tabs-wrap');
+  const tabs = $('.tabs');
+  if (!wrap || !tabs) return;
+  wrap.classList.toggle('has-overflow', tabs.scrollWidth > tabs.clientWidth + 1);
 }
 
 async function init() {
@@ -92,11 +101,16 @@ async function init() {
   renderKeyStatus($('#apiKey'), 'openrouter', $('#apiKeyHelp'), $('#apiKeyIcon'), Boolean(health.hasOpenRouterKey));
   const [historyResult, dashboardResult] = await Promise.allSettled([loadHistory(), loadDashboard()]);
   if (currentRunId) { $('#empty').hidden=true; $('#results').hidden=true; $('#progressPanel').hidden=false; $('#analysisPanel').hidden=false; setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
-  if (historyResult.status === 'rejected') $('#history').innerHTML = `<p class="error">Historique indisponible : ${esc(historyResult.reason.message)}</p>`;
+  if (historyResult.status === 'rejected') $('#historyList').innerHTML = `<p class="error">Historique indisponible : ${esc(historyResult.reason.message)}</p>`;
   if (dashboardResult.status === 'rejected') $('#dashboard').innerHTML = `<p class="error">Tableau de bord indisponible : ${esc(dashboardResult.reason.message)}</p>`;
+  updateTabsOverflow();
 }
 
-$('#autoModel')?.addEventListener('change', e => $('#models')?.classList.toggle('disabled', Boolean(e.target?.checked)));
+// Les sélecteurs de modèles ne sont utiles qu'en sélection manuelle : masqués entièrement
+// (plutôt que simplement grisés) tant que le mode automatique est actif, pour ne pas
+// encombrer le formulaire par défaut.
+$('#autoModel')?.addEventListener('change', e => { const models = $('#models'); if (models) models.hidden = Boolean(e.target?.checked); });
+window.addEventListener('resize', updateTabsOverflow);
 $('#files').addEventListener('change', renderSelectedFiles);
 $('#apiKey').addEventListener('input', () => renderKeyStatus($('#apiKey'), 'openrouter', $('#apiKeyHelp'), $('#apiKeyIcon'), Boolean(healthState.hasOpenRouterKey)));
 $('#firecrawlApiKey').addEventListener('input', syncFirecrawlAvailability);
@@ -177,7 +191,7 @@ function addAnalysis(data){
 }
 function resetButton(){ $('#submitButton').disabled=false; $('#submitButton').textContent='Lancer la boucle'; }
 function showError(error){ $('#error').textContent=error.message; $('#error').hidden=false; $('#error').scrollIntoView({block:'nearest'}); }
-function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; currentRunId=data.id; $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=`<h3>Arbitrage Grok</h3><pre>${esc(JSON.stringify(data.arbitration,null,2))}</pre>`; $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); }
+function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; currentRunId=data.id; $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=`<h3>Arbitrage Grok</h3><pre>${esc(JSON.stringify(data.arbitration,null,2))}</pre>`; $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); updateTabsOverflow(); }
 function renderScores(audits){ const keys=['exactitude_factuelle','qualite_sources','calculs','couverture','coherence','actualite']; return `<div class="table-wrap"><table><thead><tr><th>Cycle</th><th>Global</th>${keys.map(k=>`<th>${k.replaceAll('_',' ')}</th>`).join('')}</tr></thead><tbody>${audits.map(a=>`<tr><td>${a.cycle}</td><td>${a.score_global}</td>${keys.map(k=>`<td>${a.scores?.[k]??'—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`; }
 function sourceState(source){
   if(source.accessible===true)return{key:'accessible',label:'Accessible',detail:'Page extraite et contrôlée par Firecrawl',css:'ok'};
@@ -194,7 +208,7 @@ function renderSources(sources){
   return summary+`<div class="source-grid">${cards}</div>`;
 }
 function renderUsage(calls){ return `<div class="table-wrap"><table><thead><tr><th>Rôle</th><th>Modèle</th><th>Entrée</th><th>Sortie</th><th>Coût</th></tr></thead><tbody>${calls.map(c=>`<tr><td>${esc(c.role)}</td><td>${esc(c.model)}</td><td>${c.usage?.prompt_tokens||0}</td><td>${c.usage?.completion_tokens||0}</td><td>$${Number(c.usage?.cost||0).toFixed(4)}</td></tr>`).join('')}</tbody></table></div>`; }
-async function loadHistory(){ const cached=readHistoryCache(); if(cached.length) $('#history').innerHTML=historyRows(cached); const {runs}=await json('/api/history'); const merged=[...(runs||[]),...cached.filter(c=>!(runs||[]).some(r=>r.id===c.id))].sort((a,b)=>new Date(b.created_at||b.createdAt||0)-new Date(a.created_at||a.createdAt||0)); writeHistoryCache(merged); $('#history').innerHTML=historyRows(merged); }
+async function loadHistory(){ const cached=readHistoryCache(); if(cached.length) $('#historyList').innerHTML=historyRows(cached); const {runs}=await json('/api/history'); const merged=[...(runs||[]),...cached.filter(c=>!(runs||[]).some(r=>r.id===c.id))].sort((a,b)=>new Date(b.created_at||b.createdAt||0)-new Date(a.created_at||a.createdAt||0)); writeHistoryCache(merged); $('#historyList').innerHTML=historyRows(merged); }
 async function loadDashboard(){ const d=await json('/api/dashboard'); $('#dashboard').innerHTML=`<div class="metrics"><article><span>Exécutions</span><strong>${d.totals.runs}</strong></article><article><span>Validées</span><strong>${d.totals.validated}</strong></article><article><span>Coût total</span><strong>$${Number(d.totals.cost).toFixed(4)}</strong></article><article><span>Tokens</span><strong>${(d.totals.promptTokens+d.totals.completionTokens).toLocaleString()}</strong></article></div>${renderUsage(d.byModel.map(m=>({role:`${m.calls} appels`,model:m.model,usage:{prompt_tokens:m.promptTokens,completion_tokens:m.completionTokens,cost:m.cost}})))}`; }
 $('#refreshHistory').onclick=()=>Promise.allSettled([loadHistory(),loadDashboard()]);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ loadHistory().catch(()=>{}); loadDashboard().catch(()=>{}); if(currentRunId && (!currentEventSource || currentEventSource.readyState===EventSource.CLOSED)) watchJob(currentRunId); } });

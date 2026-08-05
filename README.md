@@ -17,6 +17,23 @@ Ce dépôt est un fork corrigé de [`newbizai2023-ops/Boucle-Contradictoire`](ht
 7. **Dockerfile corrigé** : la préparation du code s'effectue au build (elle n'existe plus, le code étant déjà final), plus au démarrage du conteneur ; ajout d'un `.dockerignore` et d'un `package-lock.json` commité pour des builds reproductibles (`npm ci`).
 8. **Modèles par défaut réalignés sur la documentation** : le rédacteur utilise à nouveau Claude Opus pour les domaines technique/financier/juridique, comme indiqué dans le tableau ci-dessous (un script de test avait silencieusement basculé ces domaines vers Sonnet dans le dépôt d'origine).
 
+### Corrections d'ergonomie (interface)
+
+À la suite d'une revue ergonomique de l'interface (`public/*`) :
+
+- Contraste du bouton principal « Lancer la boucle » remonté au-dessus du seuil WCAG AA (le dégradé d'origine tombait à ~3.7:1 avec le texte blanc).
+- Badge « Non configurée » d'OpenRouter distingué de celui de Firecrawl (rouge/bloquant vs ambre/optionnel) : sans clé OpenRouter aucune analyse n'est possible, alors que Firecrawl n'est qu'une amélioration.
+- Ajout d'un bloc « Comment ça marche » visible avant connexion, et réduction de la hauteur excessive du panneau de résultats vide.
+- Les sélecteurs de modèles (Rédacteur/Auditeur/Arbitre) sont masqués entièrement en mode automatique, au lieu d'être grisés tout en occupant de l'espace.
+- Distinction claire entre le fil « Étapes » (progression courte) et les « Constats détaillés » (explications complètes), pour réduire la sensation de doublon.
+- Ajout de textes d'aide sous « Cycles maximum » / « Score cible » et d'une indication de durée typique près du bouton d'envoi.
+- Fusion des media queries dupliquées (950px/1200px) en un seul point de bascule responsive.
+- Libellés de modèles raccourcis pour éviter la troncature dans les listes déroulantes sur mobile.
+- Indice visuel de défilement sur la barre d'onglets quand elle déborde (mobile).
+- Focus clavier harmonisé sur les boutons et onglets (même anneau que les champs de formulaire).
+- Thème clair ajouté, activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
+- Lien rapide « Historique ↓ » dans l'en-tête pour un accès direct sans défiler toute la page.
+
 ## Déploiement
 
 - Dépôt : `newbizai2023-ops/boucle-contradictoire-version-claude`

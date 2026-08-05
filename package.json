@@ -1,6 +1,6 @@
 {
   "name": "boucle-contradictoire",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "private": true,
   "description": "Boucle contradictoire multi-modèles avec recherche web, documents, arbitrage, historique et exports",
   "type": "module",
