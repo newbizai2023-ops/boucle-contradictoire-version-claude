@@ -1,0 +1,36 @@
+databases:
+  - name: boucle-contradictoire-db
+    plan: basic-256mb
+    region: frankfurt
+    databaseName: boucle_contradictoire
+    user: boucle_app
+
+services:
+  - type: web
+    name: boucle-contradictoire
+    runtime: node
+    region: frankfurt
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        fromDatabase:
+          name: boucle-contradictoire-db
+          property: connectionString
+      - key: APP_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false

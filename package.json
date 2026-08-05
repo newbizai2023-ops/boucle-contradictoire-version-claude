@@ -1,0 +1,33 @@
+{
+  "name": "boucle-contradictoire",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Boucle contradictoire multi-modèles avec recherche web, documents, arbitrage, historique et exports",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check public/app.js",
+    "release:patch": "npm version patch --no-git-tag-version",
+    "release:minor": "npm version minor --no-git-tag-version",
+    "release:major": "npm version major --no-git-tag-version"
+  },
+  "engines": { "node": ">=20 <23" },
+  "dependencies": {
+    "connect-pg-simple": "^10.0.0",
+    "docx": "^9.5.1",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "helmet": "^8.1.0",
+    "mammoth": "^1.10.0",
+    "multer": "^2.2.0",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "pdf-parse": "1.1.1",
+    "pdfkit": "^0.17.1",
+    "pg": "^8.16.3",
+    "uuid": "^11.1.0"
+  }
+}

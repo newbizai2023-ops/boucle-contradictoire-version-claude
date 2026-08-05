@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Boucle Contradictoire</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header>
+  <div>
+    <p class="eyebrow">ORCHESTRATION MULTI-MODÈLES</p>
+    <h1>Boucle Contradictoire</h1>
+    <p>Claude rédige, GPT audite, Grok arbitre — avec recherche web, contrôle Firecrawl et traçabilité.</p>
+  </div>
+  <div class="header-actions"><span id="release" class="badge">Release…</span><span id="health" class="badge">Vérification…</span><div id="auth"></div></div>
+</header>
+<main id="app" hidden>
+  <section class="panel form-panel">
+    <form id="reviewForm" enctype="multipart/form-data" novalidate>
+      <div class="form-section">
+        <div class="section-heading"><span class="step-number">1</span><div><h2>Demande</h2><p>Décris précisément le résultat attendu et joins les documents utiles.</p></div></div>
+        <label for="request">Demande à traiter</label>
+        <textarea id="request" minlength="20" required placeholder="Décris l’étude, l’analyse ou le document à produire…">Analyse la question suivante :
+
+**Une entreprise de 100 salariés a-t-elle intérêt à remplacer tous les ordinateurs portables tous les trois ans plutôt que tous les cinq ans ?**
+
+Présente :
+
+- les avantages et les inconvénients des deux stratégies ;
+
+- les impacts financiers, opérationnels, environnementaux et de sécurité ;
+
+- les hypothèses utilisées ;
+
+- une recommandation finale argumentée.
+
+Vérifie les informations importantes à l’aide de sources récentes et fiables. Indique clairement les points qui ne peuvent pas être confirmés.</textarea>
+        <label for="files">Documents à analyser</label>
+        <div class="file-drop"><input id="files" name="files" type="file" multiple accept=".txt,.md,.csv,.json,.pdf,.docx,.xlsx"><strong>Ajouter jusqu’à 5 documents</strong><small>TXT, Markdown, CSV, JSON, PDF, Word ou Excel · 10 Mo maximum par fichier</small></div>
+        <div id="fileList" class="file-list" aria-live="polite"></div>
+      </div>
+
+      <div class="form-section">
+        <div class="section-heading"><span class="step-number">2</span><div><h2>Configuration</h2><p>Choisis le niveau de contrôle et les modèles.</p></div></div>
+        <label class="option-card"><span class="switch-row"><input id="autoModel" type="checkbox" checked><span><strong>Sélection automatique des modèles</strong><small>L’orchestrateur choisit les modèles selon la tâche.</small></span></span></label>
+
+        <label id="firecrawlOption" class="option-card disabled-option" aria-disabled="true">
+          <span class="switch-row"><input id="webSearch" type="checkbox" disabled><span><strong>Vérification approfondie des sources via Firecrawl</strong><small id="webSearchHelp">Saisis une clé Firecrawl valide pour activer cette option. La recherche Web OpenRouter reste active.</small></span></span>
+        </label>
+
+        <div id="models" class="grid muted-block disabled">
+          <div><label for="writerModel">Rédacteur</label><select id="writerModel"><option value="~anthropic/claude-opus-latest">Claude Opus — dernière version</option><option value="~anthropic/claude-sonnet-latest" selected>Claude Sonnet — dernière version</option><option value="openai/gpt-5.6-sol">GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi — dernière version</option><option value="~x-ai/grok-latest">Grok — dernière version</option></select></div>
+          <div><label for="auditorModel">Auditeur</label><select id="auditorModel"><option value="~anthropic/claude-opus-latest">Claude Opus — dernière version</option><option value="~anthropic/claude-sonnet-latest">Claude Sonnet — dernière version</option><option value="openai/gpt-5.6-sol" selected>GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi — dernière version</option><option value="~x-ai/grok-latest">Grok — dernière version</option></select></div>
+          <div><label for="arbiterModel">Arbitre</label><select id="arbiterModel"><option value="~anthropic/claude-opus-latest">Claude Opus — dernière version</option><option value="~anthropic/claude-sonnet-latest">Claude Sonnet — dernière version</option><option value="openai/gpt-5.6-sol">GPT-5.6 Sol</option><option value="openai/gpt-5.6-terra">GPT-5.6 Terra</option><option value="~moonshotai/kimi-latest">Kimi — dernière version</option><option value="~x-ai/grok-latest" selected>Grok — dernière version</option></select></div>
+        </div>
+        <div class="grid compact-grid"><div><label for="maxCycles">Cycles maximum</label><input id="maxCycles" type="number" min="1" max="5" value="3"></div><div><label for="minScore">Score cible</label><input id="minScore" type="number" min="50" max="100" value="90"></div></div>
+      </div>
+
+      <div class="form-section api-configuration">
+        <div class="section-heading"><span class="step-number">3</span><div><h2>Services API</h2><p>Les clés configurées dans Render restent secrètes et ne sont jamais affichées.</p></div></div>
+        <div class="api-service-grid" aria-live="polite">
+          <article class="api-service-card"><div><strong>OpenRouter</strong><small>Modèles et recherche Web</small></div><span id="openrouterServerStatus" class="service-status checking">Vérification…</span></article>
+          <article class="api-service-card"><div><strong>Firecrawl</strong><small>Contrôle approfondi des sources</small></div><span id="firecrawlServerStatus" class="service-status checking">Vérification…</span></article>
+        </div>
+        <details id="temporaryKeys" class="advanced-settings">
+          <summary>Utiliser exceptionnellement des clés temporaires</summary>
+          <p>Ces valeurs remplacent les clés Render uniquement pour cette analyse. Elles ne sont ni enregistrées dans l’historique ni affichées après l’envoi.</p>
+          <div class="grid api-key-grid">
+            <div class="field"><label for="apiKey">Clé OpenRouter temporaire</label><div class="input-status"><input id="apiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="sk-or-v1-…" aria-describedby="apiKeyHelp"><span id="apiKeyIcon" aria-hidden="true"></span></div><small id="apiKeyHelp">Laisse vide pour utiliser la clé configurée dans Render.</small></div>
+            <div class="field"><label for="firecrawlApiKey">Clé Firecrawl temporaire</label><div class="input-status"><input id="firecrawlApiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="fc-…" aria-describedby="firecrawlKeyHelp"><span id="firecrawlKeyIcon" aria-hidden="true"></span></div><small id="firecrawlKeyHelp">Laisse vide pour utiliser la clé configurée dans Render.</small></div>
+          </div>
+        </details>
+      </div>
+
+      <button id="submitButton" type="submit">Lancer la boucle</button>
+      <p id="error" class="error" role="alert" hidden></p>
+    </form>
+  </section>
+
+  <section class="panel results-panel">
+    <div id="empty" class="empty"><div class="loop">↻</div><h2>Prêt pour une contre-analyse</h2><p>La progression, le résultat, les sources, les scores et les coûts apparaîtront ici.</p></div>
+    <div id="progressPanel" hidden>
+      <div class="section-title"><div><p class="eyebrow">TRAITEMENT EN COURS</p><h2>Fil de progression</h2></div><strong id="progressPercent">0 %</strong></div>
+      <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="progressBar"></span></div>
+      <p id="progressText" class="current-step"></p>
+      <ol id="timeline" class="activity-feed" aria-live="polite"></ol>
+    </div>
+    <section id="analysisPanel" class="analysis-panel" hidden><div class="section-title"><h2>Informations d’analyse</h2><span class="badge">Résumé explicable</span></div><p class="analysis-notice">Cette zone présente les constats et décisions utiles, sans exposer la chaîne de pensée privée des modèles.</p><div id="analysisFeed" class="analysis-feed" aria-live="polite"></div></section>
+    <div id="results" hidden><div class="metrics"><article><span>Statut</span><strong id="status">—</strong></article><article><span>Score final</span><strong id="score">—</strong></article><article><span>Appels</span><strong id="calls">—</strong></article><article><span>Coût</span><strong id="cost">—</strong></article></div>
+      <nav class="tabs"><button class="tab active" data-tab="document" type="button">Document</button><button class="tab" data-tab="scores" type="button">Scores</button><button class="tab" data-tab="sources" type="button">Sources</button><button class="tab" data-tab="audits" type="button">Audits</button><button class="tab" data-tab="usage" type="button">Consommation</button></nav>
+      <section id="document" class="tab-panel active"><div class="toolbar"><button id="copy" class="secondary">Copier</button><a data-export="md">Markdown</a><a data-export="pdf">PDF</a><a data-export="docx">Word</a><a data-export="xlsx">Excel</a></div><pre id="finalDocument"></pre><div id="arbitration"></div></section>
+      <section id="scores" class="tab-panel"></section><section id="sources" class="tab-panel"></section><section id="audits" class="tab-panel"></section><section id="usage" class="tab-panel"></section>
+    </div>
+  </section>
+  <section class="panel full"><div class="section-title"><h2>Historique</h2><button id="refreshHistory" class="secondary">Actualiser</button></div><div id="history"></div></section>
+  <section class="panel full"><h2>Tableau de bord de consommation</h2><div id="dashboard"></div></section>
+</main>
+<footer>Aucune clé API réelle n’est incluse dans le dépôt. · <span id="releaseFooter">Release…</span></footer>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
