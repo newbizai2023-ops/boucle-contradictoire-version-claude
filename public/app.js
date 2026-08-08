@@ -255,6 +255,34 @@ function resolveFeedStep(key, kind, message, details){
   }
   appendFeedItem(kind, message, details);
 }
+// Les tâches vivent dans la mémoire du processus : tout redémarrage du serveur (déploiement, mise
+// en veille de l'hébergeur) les efface, et /api/jobs/:id/events répond alors 404. Un EventSource
+// ne retente pas après un 404 — sans ce traitement, l'interface restait indéfiniment figée sur
+// « Reconnexion au traitement… 1 % », sans message ni moyen d'en sortir autrement qu'en vidant le
+// stockage local.
+function forgetCurrentRun(message){
+  currentRunId = null;
+  try { localStorage.removeItem('currentRunId'); localStorage.removeItem('currentRunRequest'); } catch {}
+  if (!message) return;
+  $('#progressPanel').hidden = true;
+  $('#resultsPanel').hidden = true;
+  showError(new Error(message));
+}
+// Le suivi en direct est perdu, mais l'analyse a pu se terminer avant le redémarrage : elle reste
+// consultable si elle a été historisée ou si elle est encore en mémoire.
+async function recoverFinishedRun(id){
+  try {
+    const { run } = await json(`/api/runs/${encodeURIComponent(id)}`);
+    appendFeedItem('complete', 'Analyse retrouvée : seul le suivi en direct avait été interrompu.');
+    renderResult(run);
+    setProgress(100, 'Terminé');
+    loadHistory().catch(()=>{});
+    loadAnalytics().catch(()=>{});
+  } catch {
+    forgetCurrentRun('Le suivi de cette analyse n’est plus disponible : le serveur a redémarré depuis son lancement et ne la connaît plus. Relance une analyse pour repartir.');
+  }
+}
+
 function watchJob(id) {
   if (currentEventSource) currentEventSource.close();
   const es = new EventSource(`/api/jobs/${id}/events`);
@@ -286,14 +314,25 @@ function watchJob(id) {
   es.addEventListener('complete', onceParsed(d => { es.close(); appendFeedItem('complete','Analyse terminée'); renderResult(d.result); setProgress(100,'Terminé'); resetButton(); loadHistory().catch(showError); loadAnalytics().catch(showError); }));
   // Sert à la fois pour les erreurs réseau natives de l'EventSource (sans e.data, avant une
   // reconnexion automatique) et pour l'événement "error" émis par le serveur quand le job échoue.
-  es.addEventListener('error', e=>{
+  es.addEventListener('error', e => {
     if (e.data) {
+      // Événement "error" émis par le serveur : l'analyse elle-même a échoué.
       const d = JSON.parse(e.data);
       if (d.seq != null) { if (d.seq <= lastSeq) return; lastSeq = d.seq; }
       showError(new Error(d.message));
       appendFeedItem('error', d.message);
+      forgetCurrentRun();
+      es.close();
+      resetButton();
+      return;
     }
-    es.close(); resetButton();
+    // Erreur native de l'EventSource. Tant que readyState vaut CONNECTING, le navigateur retente
+    // de lui-même (veille mobile, changement de réseau) : ne rien faire, et surtout pas close(),
+    // qui supprimerait cette reconnexion automatique. CLOSED signifie au contraire que la
+    // connexion a été refusée définitivement — typiquement un 404 sur un job inconnu.
+    if (es.readyState !== EventSource.CLOSED) return;
+    resetButton();
+    recoverFinishedRun(id);
   });
 }
 function setProgress(p,t){ const value=Math.min(100,Math.max(0,Number(p)||0)); $('#progressBar').style.width=`${value}%`; $('#progressText').textContent=t||''; $('#progressPercent').textContent=`${Math.round(value)} %`; $('.progress').setAttribute('aria-valuenow',String(value)); }

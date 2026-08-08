@@ -15,6 +15,35 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.5.2] - 2026-08-08
+
+### Corrigé
+
+- **L'interface restait bloquée indéfiniment sur « Reconnexion au traitement… 1 % ».** L'identifiant
+  de la dernière analyse est conservé dans le stockage local du navigateur, et au chargement de la
+  page l'interface tente de reprendre son suivi. Or les tâches vivent dans la mémoire du processus :
+  tout redémarrage du serveur les efface — un déploiement, mais surtout la mise en veille du plan
+  d'hébergement, qui survient plusieurs fois par jour. `/api/jobs/:id/events` répond alors `404`,
+  cas dans lequel un `EventSource` échoue **sans données et sans nouvelle tentative**. Le
+  gestionnaire d'erreur se contentait de fermer le flux : la barre restait figée à 1 %, sans
+  message, sans résultat, et sans autre issue que de vider le stockage local du navigateur.
+
+  Trois corrections :
+  - une erreur native de l'`EventSource` n'est traitée comme définitive que si `readyState` vaut
+    `CLOSED`. Tant qu'il vaut `CONNECTING`, le navigateur retente de lui-même (veille mobile,
+    changement de réseau) et le flux n'est plus fermé — l'ancien `close()` inconditionnel
+    supprimait cette reconnexion automatique ;
+  - lorsque le suivi est définitivement perdu, l'analyse est d'abord recherchée via
+    `GET /api/runs/:id` : si elle s'est terminée avant le redémarrage, son résultat complet
+    s'affiche au lieu d'être perdu ;
+  - si elle reste introuvable, l'identifiant périmé est oublié, le panneau de suivi masqué et la
+    situation expliquée à l'utilisateur.
+
+  Vérifié dans un navigateur réel, avant et après. Avant : `progressText="Reconnexion au
+  traitement…"`, `percent="1 %"`, aucun message, identifiant toujours présent en stockage local.
+  Après, analyse introuvable : panneau masqué, identifiant oublié, message affiché. Après, analyse
+  terminée avant le redémarrage : résultat retrouvé et affiché à 100 %.
+
 ## [1.5.1] - 2026-08-08
 
 ### Documentation
