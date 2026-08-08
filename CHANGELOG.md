@@ -15,6 +15,61 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.2.0] - 2026-08-08
+
+### Corrigé
+
+- **La sélection automatique des modèles n'a jamais été appliquée.** L'interface transmettait
+  systématiquement la valeur de ses trois sélecteurs de modèles — masqués en mode automatique mais
+  toujours renseignés — et le serveur les prenait en compte inconditionnellement. Le tableau
+  `MODEL_DEFAULTS` (Opus pour les domaines techniques, financiers et juridiques ; Sonnet pour
+  l'actualité et l'analyse générale) était donc inopérant : la « sélection automatique » se
+  contentait en réalité des valeurs par défaut du formulaire, et une demande classée `technical`
+  était rédigée par Sonnet là où la documentation annonce Opus. Le serveur ignore désormais les
+  modèles transmis lorsque le mode automatique est actif ; l'interface, symétriquement, ne les
+  envoie plus dans ce cas.
+- **Une analyse terminée était intégralement perdue lorsque son enregistrement en base échouait.**
+  `saveRun()` était attendu avant la publication du résultat : une erreur PostgreSQL (connexion
+  coupée, délai dépassé) remontait au gestionnaire d'erreur du job et l'utilisateur perdait un
+  document produit au prix de plusieurs cycles de modèles, alors même que l'application est conçue
+  pour fonctionner sans base. L'échec de persistance est désormais capturé, journalisé et signalé
+  dans le fil de suivi, mais le résultat est publié dans tous les cas. Le champ `persisted` du
+  résultat indique si l'exécution a bien été écrite en base.
+- **Le type de tâche était déduit du contenu des documents joints.** La classification portait sur
+  la demande *concaténée au texte intégral des pièces jointes* : un PDF mentionnant « github » ou
+  « budget » suffisait à basculer le domaine détecté, et donc le choix des modèles, indépendamment
+  de la demande réelle. C'était également une surface d'injection indirecte — une pièce jointe ne
+  doit pas choisir le modèle qui la traitera. La classification porte désormais sur la seule
+  demande saisie par l'utilisateur.
+
+### Sécurité
+
+- **Restriction des modèles acceptés en sélection manuelle à une liste blanche.** `validateModel()`
+  ne contrôlait que le *format* de l'identifiant OpenRouter. Comme `OPENROUTER_API_KEY` (clé du
+  déploiement) prime sur la clé fournie par l'utilisateur, tout compte authentifié pouvait faire
+  facturer au déploiement le modèle de son choix, aussi coûteux soit-il, en appelant directement
+  `POST /api/jobs`. Le `<select>` de l'interface ne constituait pas une protection. La liste
+  autorisée est dérivée de `MODEL_LABELS`, qui reflète déjà les options proposées par l'interface.
+
+### Modifié
+
+- **Les sources vérifiées par Firecrawl sont mémorisées pour toute la durée de l'analyse.**
+  `verifySources()` étant rappelée à chaque cycle, les URL déjà contrôlées étaient intégralement
+  re-extraites : sur une analyse de trois cycles citant les mêmes sources, jusqu'à trois fois plus
+  d'appels Firecrawl payants pour un résultat identique, et une latence proportionnelle. Mesuré sur
+  un scénario de trois cycles avec deux sources stables et une nouvelle source par version : neuf
+  extractions auparavant, cinq désormais. Deux conséquences volontaires :
+  - le budget `MAX_SOURCES_PER_RUN` (10) s'applique maintenant à l'analyse entière, conformément à
+    son nom, et non plus à chaque cycle pris isolément ;
+  - `result.sources` cumule toutes les sources contrôlées au fil des cycles au lieu d'être écrasé
+    par le seul lot du dernier cycle — le même scénario conserve cinq sources dans le rapport final
+    contre trois auparavant.
+- **Le tableau de bord ne rapatrie plus les documents complets depuis la base.** `dashboardRows()`
+  sélectionnait la colonne `result` entière sur 90 jours d'exécutions — document final, toutes ses
+  versions intermédiaires et le contenu intégral de chaque réponse de modèle — pour n'en exploiter
+  que la consommation par appel. La requête projette désormais `result->'calls'`, laissant le tri à
+  PostgreSQL.
+
 ## [1.1.7] - 2026-08-08
 
 ### Corrigé

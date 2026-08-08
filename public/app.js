@@ -159,11 +159,18 @@ $('#reviewForm').addEventListener('submit', async event => {
   $('#resultsPanel').hidden=false; $('#progressPanel').hidden=false; resetFeed(); showRequestSummary($('#request').value); appendFeedItem('start','Analyse demandée au serveur'); setProgress(1,'Envoi de la demande…');
   const formData = new FormData();
   formData.append('request',$('#request').value);
-  formData.append('autoModel',String(isChecked('#autoModel')));
+  const autoModel = isChecked('#autoModel');
+  formData.append('autoModel',String(autoModel));
   formData.append('firecrawl',String(isChecked('#webSearch')));
-  formData.append('writerModel',$('#writerModel').value.trim());
-  formData.append('auditorModel',$('#auditorModel').value.trim());
-  formData.append('arbiterModel',$('#arbiterModel').value.trim());
+  // Les trois sélecteurs restent renseignés même masqués : ne les transmettre qu'en sélection
+  // manuelle, sinon ils décrivent un choix que l'utilisateur n'a pas fait. Le serveur les ignore
+  // désormais en mode automatique — cette condition évite simplement d'envoyer une intention
+  // trompeuse, elle ne tient pas lieu de contrôle.
+  if (!autoModel) {
+    formData.append('writerModel',$('#writerModel').value.trim());
+    formData.append('auditorModel',$('#auditorModel').value.trim());
+    formData.append('arbiterModel',$('#arbiterModel').value.trim());
+  }
   formData.append('maxCycles',$('#maxCycles').value);
   formData.append('minScore',$('#minScore').value);
   formData.append('apiKey',$('#apiKey').value.trim());
