@@ -49,6 +49,20 @@ test("les formats d'export proposés sont tous gérés par la route d'export", (
   }
 });
 
+test("les limites d'upload annoncées par le formulaire sont celles appliquées par le serveur", () => {
+  // Le formulaire a annoncé « 5 documents · 10 Mo » jusqu'en 1.3.1 alors que le serveur en refusait
+  // plus de 3 et plus de 5 Mo : l'utilisateur qui suivait l'interface récoltait un 400.
+  const [documentsAnnonces] = matchAll(html, /Ajouter jusqu['’]à (\d+) documents/g);
+  const [mégaoctetsAnnonces] = matchAll(html, /(\d+) Mo maximum par fichier/g);
+  const [documentsAcceptes] = matchAll(server, /UPLOAD_MAX_FILES = (\d+)/g);
+  const [mégaoctetsAcceptes] = matchAll(server, /UPLOAD_MAX_FILE_BYTES = (\d+) \* 1024 \* 1024/g);
+
+  assert.ok(documentsAnnonces && mégaoctetsAnnonces, "limites introuvables dans le formulaire");
+  assert.ok(documentsAcceptes && mégaoctetsAcceptes, "limites introuvables dans le serveur");
+  assert.equal(documentsAnnonces, documentsAcceptes, "nombre de documents annoncé ≠ appliqué");
+  assert.equal(mégaoctetsAnnonces, mégaoctetsAcceptes, "taille par fichier annoncée ≠ appliquée");
+});
+
 test("les extensions acceptées par le sélecteur de fichiers sont celles autorisées par le serveur", () => {
   const [accept] = matchAll(html, /accept="([^"]+)"/g);
   const proposees = new Set(accept.split(",").map(extension => extension.trim()));

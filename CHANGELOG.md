@@ -15,6 +15,18 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.3.1] - 2026-08-08
+
+### Corrigé
+
+- **Le formulaire annonçait des limites d'upload que le serveur refusait.** Le sélecteur de
+  documents indiquait « Ajouter jusqu'à 5 documents · 10 Mo maximum par fichier » alors que
+  `UPLOAD_MAX_FILES` vaut 3 et `UPLOAD_MAX_FILE_BYTES` 5 Mo : l'utilisateur qui suivait l'interface
+  récoltait une erreur 400 (« Maximum 3 fichiers par analyse », « Un fichier dépasse la limite de
+  5 Mo »). Le libellé est aligné sur les limites réellement appliquées, que le README documentait
+  déjà correctement. Un test de cohérence (`test/interface.test.js`) compare désormais les deux
+  valeurs annoncées à celles du serveur, pour que l'écart ne puisse pas réapparaître.
+
 ## [1.3.0] - 2026-08-08
 
 ### Ajouté
