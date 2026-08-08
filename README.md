@@ -30,7 +30,7 @@ que leur parenté.
 | **Rédacteur** | oui | Produit le document, puis le corrige intégralement à chaque cycle |
 | **Second avis** | oui | Traite la même demande **sans voir** la première analyse. Conditionnel |
 | **Auditeur** | non | Attaque le document sur pièces : demande, texte, dossier de sources contrôlées. Inventorie aussi les affirmations |
-| **Réfutation** | oui | Cherche à démentir le document plutôt qu'à l'auditer. Conditionnel |
+| **Réfutation** | oui | Cherche à démentir le document plutôt qu'à l'auditer. Conditionnel. Distinct de l'arbitre : chercher les contradictions et les juger sont deux rôles |
 | **Arbitre** | non | Tranche sur la version finale. **Ne réécrit jamais.** |
 
 L'auditeur travaille sans recherche web pour deux raisons : le coût, et l'ancrage — un auditeur qui
@@ -46,6 +46,8 @@ complaisant. Un score est une opinion ; un code HTTP est un fait.
 | Mesuré par du code (opposable) | Produit par un modèle (indicatif) |
 |---|---|
 | Accessibilité réelle de chaque URL citée (Firecrawl) | Score global et scores par critère sur 100 |
+| Présence effective d'une citation dans la page extraite | Relation sémantique entre une source et une affirmation |
+| Rétrogradation d'une affirmation sans source contrôlable | Statut initial d'une affirmation (`VERIFIE`, `CONTREDIT`) |
 | Classification d'une source par son domaine (`sourceClass`) | Gravité des anomalies, verdict `VALIDER`/`CORRIGER` |
 | Comparaison des cycles entre eux (progrès, stagnation) | Liste `sources_non_verifiees` |
 | Plafonnement de la confiance globale par ses dimensions | Confiances de l'arbitre, décision finale |
@@ -86,14 +88,34 @@ détecter ce qu'une réécriture a fait perdre.
 le démentir. Toute objection sans URL est écartée par le code, et les sources qu'elle produit
 passent le même contrôle d'accessibilité que les autres.
 
+### Preuve opposable : la citation doit exister
+
+Une source qui répond n'établit rien. Une page peut parler d'un autre produit, d'une autre version,
+d'une autre région, ou ne mentionner le sujet que de loin. Se contenter de l'accessibilité revenait
+donc à passer de « le modèle affirme que cette source contredit le document » à « la contradiction
+est confirmée » parce que l'URL existait.
+
+Le contrôle qui tranche est déterministe et ne coûte aucun appel : **le modèle cite un extrait, et
+cet extrait doit se retrouver dans la page réellement extraite par Firecrawl.** Une citation
+littérale suffit ; à défaut, un recouvrement lexical d'au moins 60 % sur les mots significatifs
+accepte une reformulation fidèle sans laisser passer une citation fabriquée. Une objection qui ne
+tient pas ce contrôle est écartée et n'affecte plus le verdict.
+
+Le même principe s'applique aux affirmations. Le statut `VERIFIE` est décidé par l'auditeur ; trois
+règles le lui retirent sans jugement lorsqu'il ne s'appuie sur rien de contrôlable : aucune source
+rattachée, aucune source connue du dossier, aucune source joignable. Le code peut retirer un statut
+que rien n'étaye — il ne s'autorise jamais à en accorder un.
+
 ### Cycles : quand la boucle repart, quand elle s'arrête
 
 Un cycle enchaîne vérification des sources → audit → correction intégrale. Il en faut au moins un et
 au plus cinq (trois par défaut). La boucle s'arrête dans trois cas seulement :
 
 1. **Validation** — tous les critères de la section « Règles de validation » sont satisfaits.
-2. **Stagnation** — deux audits consécutifs sans progrès ni sur le score, ni sur le nombre
-   d'anomalies sévères. Un cycle de plus ne ferait que payer une rédaction et un audit pour le même
+2. **Stagnation** — deux audits consécutifs sans progrès sur aucune des trois dimensions suivies :
+   score, anomalies sévères, affirmations déterminantes non établies. Un cycle qui résout trois
+   affirmations sans faire bouger le score d'un point fait le travail utile ; l'arrêter là
+   gaspillerait précisément ce qu'on cherchait à obtenir. Un cycle de plus ne ferait que payer une rédaction et un audit pour le même
    résultat ; le document part à l'arbitrage en l'état, avec la raison d'arrêt affichée.
 3. **Épuisement** — le nombre maximal de cycles est atteint, motifs de blocage à l'appui.
 
@@ -134,18 +156,21 @@ convaincant que rien n'atteste. Le second avis n'est automatique que là où une
 
 Ces limites sont assumées et documentées, pas ignorées :
 
-- **Accessible ≠ probant.** Firecrawl établit qu'une page répond, pas qu'elle soutient l'affirmation
-  qui la cite. Le lien entre une affirmation et sa source n'est apprécié que par l'auditeur, sur un
-  extrait tronqué.
+- **La citation est vérifiée, l'implication ne l'est pas.** Le code établit qu'un extrait figure
+  bien dans la page ; que cette page *implique* l'affirmation reste l'appréciation d'un modèle. Ce
+  qui a changé : cette appréciation doit désormais s'appuyer sur une citation dont l'existence est
+  prouvée.
 - **L'inventaire des affirmations est produit par un modèle.** Une affirmation qu'il n'extrait pas
   n'est jamais vérifiée et n'apparaît dans aucune porte de contrôle : c'est un mode de défaillance
   silencieux, que la table rend visible pour ce qu'elle contient, pas pour ce qu'elle omet.
 - **La détection de régression est approximative.** Les identifiants ne survivent pas d'un cycle à
   l'autre, le rapprochement se fait sur l'énoncé : une reformulation compte comme une disparition.
   Le signal est donc informatif, jamais bloquant.
-- **L'indépendance du second avis est celle du modèle, pas encore celle de l'éditeur.** Faute d'un
-  quatrième fournisseur dans la liste blanche, le second rédacteur partage son éditeur avec
-  l'auditeur.
+- **L'indépendance des rôles est celle du modèle, pas toujours celle de l'éditeur.** Faute d'un
+  quatrième fournisseur dans la liste blanche, certains rôles partagent leur éditeur.
+- **Aucun désaccord n'est refermé automatiquement.** Les questions issues du second avis alimentent
+  la correction et l'arbitrage, mais rien ne garantit qu'une recherche y réponde : une étape de
+  recherche ciblée reste à construire.
 - **Un score reste un nombre inventé par un modèle.** Ce qui a changé, c'est que la porte de
   validation ne s'en remet plus uniquement à lui.
 
@@ -179,6 +204,8 @@ lib/                 Logique sans effet de bord, importable par les tests
   audit.js            Verdict d'audit, condition d'arrêt, stagnation, confiances de l'arbitrage
   explore.js          Cadrage préalable : dimensions, questions de recherche, angles morts
   claims.js           Inventaire des affirmations, porte de validation, détection de régression
+  evidence.js         Validation opposable : citation présente dans la page, sources contrôlables
+  report.js           Mise en forme des exports : dossier de preuves, pas seulement la prose
   falsify.js          Réfutation adversariale : déclencheurs, contrat, contradictions confirmées
   diverge.js          Second avis indépendant et matrice des divergences
   persistence.js      Mise en forme des lignes historisées et journaux de fin d'analyse
@@ -236,7 +263,7 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 | GET | `/api/dashboard` | Agrégats de consommation sur 90 jours — conservé pour compatibilité, supplanté par `/api/analytics` que l'interface utilise |
 | GET | `/api/runs/:id` | Détail complet d'une exécution passée (document, audits, sources, appels) |
 | GET | `/api/analytics` | Agrégats sur toutes les exécutions (sources, audits, consommation) |
-| GET | `/api/runs/:id/export/:format` | Export d'une analyse (`md`, `pdf`, `docx`, `xlsx`) |
+| GET | `/api/runs/:id/export/:format` | Export d'une analyse (`md`, `pdf`, `docx`, `xlsx`), dossier de preuves compris |
 
 ### Boucle d'analyse (`executeJob`)
 
@@ -375,9 +402,16 @@ La progression est diffusée en temps réel par Server-Sent Events et affichée 
 | Recherche actuelle | Claude Sonnet latest | GPT-5.6 Sol | Grok latest | GPT |
 | Analyse générale | Claude Sonnet latest | GPT latest | Grok latest | GPT-5.6 Terra |
 
+Un cinquième rôle, **réfutation**, mène la recherche adversariale : Kimi par défaut sur tous les domaines. Il était confié à l'arbitre jusqu'en 1.7.0, ce qui revenait à lui faire chercher les contradictions puis juger ses propres trouvailles — sur l'élément de preuve le plus lourd du dispositif, celui qui peut dégrader un `APPROUVE`.
+
 Les modèles peuvent être sélectionnés manuellement dans l’interface. Le modèle du second avis n’est sollicité que lorsque cette étape est déclenchée ; il est toujours résolu vers un modèle différent du rédacteur **et** de l’arbitre, y compris en sélection manuelle — un second avis rendu par le rédacteur n’en serait pas un, et un arbitre qui a co-rédigé ne peut plus juger.
 
 ## Détection du type de tâche
+
+Les mots-clés sont cherchés sur des **mots entiers**. La recherche par sous-chaîne produisait des faux positifs absurdes et silencieux — « trois » contient « roi » (financier), « rapide » contient « api » (technique) — anodins tant que le domaine ne pilotait que le choix des modèles, coûteux depuis qu'il déclenche un second avis. La frontière ne peut pas être `\b`, qui coupe sur les caractères accentués : elle porte sur tout ce qui n'est ni lettre ni chiffre, de sorte que « coût » et « coûts » restent reconnus.
+
+Lorsqu'une demande relève de plusieurs domaines, une priorité explicite s'applique — juridique, puis financier, puis technique, puis actualité — au lieu de l'ordre des conditions dans le fichier. Une « architecture financière » est ainsi traitée comme financière.
+
 
 - `technical` : code, bug, API, architecture, développement, script, GitHub ;
 - `financial` : prix, coût, budget, FinOps, ROI, économie, facturation ;
@@ -612,7 +646,7 @@ Un document ne peut être validé automatiquement que si :
 - aucune anomalie critique ou élevée ne subsiste ;
 - aucune source essentielle n’est non vérifiée ;
 - **aucune URL encore citée par le document n’a été mesurée injoignable** ;
-- **aucune affirmation déterminante ne reste non vérifiée ou contredite** ;
+- **aucune affirmation déterminante ne reste non vérifiée ou contredite** — une affirmation déclarée vérifiée par l'auditeur est d'abord rétrogradée si aucune de ses sources ne figure au dossier ou n'a pu être extraite ;
 - aucun nouveau cycle n’est demandé ;
 - l’auditeur ne conclut pas à `CORRIGER` ;
 - l’arbitre rend une décision d’approbation.
@@ -638,6 +672,7 @@ Lorsqu’un cycle supplémentaire est engagé, les motifs qui l’imposent sont 
 - suppression individuelle d’un document avant analyse ;
 - validation du format des clés API ;
 - activation conditionnelle de Firecrawl ;
+- choix du second avis indépendant : automatique, toujours, jamais ;
 - fil d’information chronologique avec défilement automatique ;
 - sélection manuelle ou automatique des modèles ;
 - historique cliquable ouvrant le détail d’une analyse passée ;
@@ -656,6 +691,16 @@ l'application (source : `GET /api/health`, public) :
 | Firecrawl | clé API configurée côté serveur | non bloquant — recherche web OpenRouter toujours disponible |
 | Authentification Google | `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` configurés | critique — aucune connexion possible (hors `DEV_BYPASS_AUTH`) |
 | Base de données | connexion PostgreSQL active (`SELECT 1`) | non bloquant — historique et dashboard limités à la mémoire du process |
+
+## Exports
+
+Les exports emportent le dossier, pas seulement la prose : un document exporté qui perdrait ses preuves redeviendrait un texte parmi d'autres.
+
+| Format | Contenu |
+|---|---|
+| Markdown | Document, raison d'arrêt, cadrage, affirmations, sources et leur état, désaccords, réfutation, arbitrage |
+| Excel | Onglets Synthèse, Scores, Affirmations, Sources, Divergences, Réfutation, Consommation |
+| PDF et Word | Document, puis une annexe compacte reprenant affirmations, sources, désaccords, réfutation et arbitrage |
 
 ## Historique et consultation
 
@@ -757,6 +802,8 @@ journaux du service sans instrumentation supplémentaire :
 - Firecrawl ne garantit pas l’accès aux pages protégées, payantes ou bloquées. Une page joignable n’est pas pour autant probante : le lien entre une affirmation et la source qui la porte n’est apprécié que par l’auditeur, sur un extrait tronqué.
 - Les scores produits par les modèles ne constituent pas une certification.
 - L’inventaire des affirmations est produit par un modèle : une affirmation qu’il n’extrait pas n’est jamais vérifiée et n’apparaît dans aucune porte de contrôle.
+- La vérification d’une citation établit sa présence dans la page, pas que la page implique l’affirmation : l’entailment sémantique reste une appréciation de modèle.
+- Le recouvrement lexical de 60 % est un compromis : une reformulation très libre mais fidèle peut être écartée, une paraphrase thématique très proche peut passer.
 - La détection de régression rapproche les affirmations sur leur énoncé, les identifiants ne survivant pas d’un cycle à l’autre : une reformulation compte comme une disparition. Le signal est informatif, jamais bloquant.
 - Le second avis est rendu par un modèle distinct du rédacteur, mais du même éditeur que l’auditeur : l’indépendance obtenue est celle du modèle, pas encore celle de l’éditeur.
 - La réfutation adversariale ne prouve rien lorsqu’elle ne trouve rien : un verdict `CONFIRME` signifie que la recherche adverse a échoué, pas que le document est exact.

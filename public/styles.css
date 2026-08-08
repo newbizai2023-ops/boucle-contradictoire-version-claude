@@ -228,6 +228,14 @@ pre { white-space: pre-wrap; word-break: break-word; max-height: 650px; overflow
 .issue.critique, .issue.elevee { border-left-color: var(--danger); }
 .issue.faible { border-left-color: var(--accent); }
 
+/* Choix à trois états (second avis) : même carte que les interrupteurs, en boutons radio. */
+fieldset.option-card { border: 1px solid var(--line); }
+fieldset.option-card legend { padding: 0 4px; }
+fieldset.option-card legend small { display: block; margin-top: 4px; color: var(--muted); font-weight: 400; line-height: 1.45; }
+.radio-row { display: block; margin-top: 8px; }
+.radio-row label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+.radio-row small { color: var(--muted); font-weight: 400; }
+
 /* Raison d'arrêt de la boucle : lue à froid, elle explique pourquoi l'analyse s'est arrêtée là. */
 .stop-reason { margin: -6px 0 16px; padding: 11px 14px; border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, transparent); font-size: .85rem; color: var(--muted); }
 .stop-reason.warn { border-left-color: var(--warn); color: var(--text); }
