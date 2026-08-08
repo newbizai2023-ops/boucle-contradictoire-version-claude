@@ -160,7 +160,7 @@ $('#reviewForm').addEventListener('submit', async event => {
   const formData = new FormData();
   formData.append('request',$('#request').value);
   formData.append('autoModel',String(isChecked('#autoModel')));
-  formData.append('firecrawl',String(isChecked('#firecrawl')));
+  formData.append('firecrawl',String(isChecked('#webSearch')));
   formData.append('writerModel',$('#writerModel').value.trim());
   formData.append('auditorModel',$('#auditorModel').value.trim());
   formData.append('arbiterModel',$('#arbiterModel').value.trim());

@@ -15,6 +15,18 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.7] - 2026-08-08
+
+### Corrigé
+
+- **Firecrawl n'était jamais sollicité, quel que soit l'état de la case « Vérification approfondie
+  des sources via Firecrawl ».** Le formulaire lisait `isChecked('#firecrawl')`, un sélecteur ne
+  correspondant à aucun élément du DOM (la case réelle a l'id `webSearch`) : `isChecked` renvoyait
+  donc toujours `false`, et `firecrawlEnabled` restait `false` côté serveur dans tous les cas.
+  Corrigé en lisant le bon élément (`#webSearch`). Bug repéré après plusieurs analyses de test sans
+  aucun log `[firecrawl]`, quelle que soit la case cochée — voir le log de diagnostic ajouté en
+  1.1.6 qui a permis de confirmer que `verifySources()` n'était même jamais atteinte.
+
 ## [1.1.6] - 2026-08-08
 
 ### Ajouté
