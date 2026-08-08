@@ -1,40 +1,122 @@
-# Boucle Contradictoire (version corrigée)
+# Boucle Contradictoire
 
 Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historique PostgreSQL, exports et tableau de bord de consommation.
 
-**Version actuelle : 3.2.0**
+**Version actuelle : 1.0.0**
 
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
 
-## À propos de cette version
+## Architecture
 
-Ce dépôt est un fork corrigé de [`newbizai2023-ops/Boucle-Contradictoire`](https://github.com/newbizai2023-ops/Boucle-Contradictoire), à la suite d'une revue de code. Le fonctionnement applicatif est inchangé ; les corrections suivantes ont été appliquées :
+### Stack technique
 
-1. **Suppression de la chaîne de 15 scripts de correctifs.** L'ancien dépôt reconstruisait `server.js` et `public/*` à chaque démarrage (`npm run prepare:runtime`) via 15 scripts appliquant des remplacements de texte successifs sur les fichiers commités. Le code livré ici est directement le code source réel — plus de génération au démarrage, plus de working tree modifié par un simple `npm start`.
-2. **Correction de la fuite mémoire des jobs.** Le `Map` des tâches en mémoire n'était jamais purgé ; une éviction périodique (`sweepJobs`) borne désormais la durée de rétention et le nombre maximal de jobs conservés.
-3. **Vérification TLS Postgres activée par défaut** en production (au lieu de `rejectUnauthorized:false`), avec une option `DATABASE_CA_CERT` pour une autorité privée.
-4. **Garde-fou `DEV_BYPASS_AUTH`** : le serveur refuse de démarrer si ce contournement d'authentification est combiné à `NODE_ENV=production`.
-5. **Vérification des sources parallélisée** (au lieu d'un traitement séquentiel), avec une concurrence bornée, pour réduire la latence perçue lors des cycles d'audit.
-6. **En-têtes de sécurité (`helmet`) et limitation de débit (`express-rate-limit`)** ajoutés, notamment sur la création d'analyses (`POST /api/jobs`), pour limiter les abus et l'emballement des coûts.
-7. **Dockerfile corrigé** : la préparation du code s'effectue au build (elle n'existe plus, le code étant déjà final), plus au démarrage du conteneur ; ajout d'un `.dockerignore` et d'un `package-lock.json` commité pour des builds reproductibles (`npm ci`).
-8. **Modèles par défaut réalignés sur la documentation** : le rédacteur utilise à nouveau Claude Opus pour les domaines technique/financier/juridique, comme indiqué dans le tableau ci-dessous (un script de test avait silencieusement basculé ces domaines vers Sonnet dans le dépôt d'origine).
+- **Runtime** : Node.js 20+, module ES natif (`"type": "module"`), aucun bundler ni framework frontend.
+- **Serveur HTTP** : Express 5.
+- **Authentification** : Passport.js avec stratégie Google OAuth 2.0 (`passport-google-oauth20`) ; sessions stockées en PostgreSQL via `connect-pg-simple` (ou en mémoire si aucune base n'est configurée).
+- **Base de données** : PostgreSQL, utilisée pour les utilisateurs, les sessions et l'historique des analyses. L'application démarre et fonctionne aussi sans `DATABASE_URL` (voir « Jobs et persistance » ci-dessous).
+- **Appels aux modèles** : API OpenRouter (`chat/completions`), avec l'outil intégré `openrouter:web_search`.
+- **Vérification de sources** : API Firecrawl (`/v2/scrape`), en concurrence bornée.
+- **Documents joints** : `multer` (upload en mémoire), `mammoth` (extraction `.docx`), `pdf-parse` (extraction `.pdf`), `exceljs` (lecture `.xlsx`).
+- **Exports de résultats** : `pdfkit` (PDF), `docx` (Word), `exceljs` (Excel), Markdown généré directement.
+- **Frontend** : HTML/CSS/JavaScript vanilla dans `public/`, servi tel quel par `express.static` — pas de framework, pas d'étape de build.
+- **Sécurité applicative** : `helmet` (en-têtes, CSP), `express-rate-limit` (limitation globale et sur `POST /api/jobs`), cookies de session `httpOnly`/`secure` (en production)/`sameSite=lax`.
+- **Temps réel** : Server-Sent Events natifs (pas de WebSocket, pas de dépendance supplémentaire).
 
-### Corrections d'ergonomie (interface)
+### Arborescence
 
-À la suite d'une revue ergonomique de l'interface (`public/*`) :
+```text
+server.js            Backend complet : auth, prompts, boucle contradictoire, routes API, exports, SSE
+public/
+  index.html          Structure HTML de l'interface
+  app.js               Logique frontend : connexion, formulaire, suivi SSE, historique, dashboard
+  styles.css           Styles (thèmes clair/sombre, mise en page responsive)
+docs/
+  BUILD_PROMPT.md       Prompt maître autonome permettant de reconstruire l'application
+render.yaml            Déploiement Render (service web + base PostgreSQL)
+Dockerfile              Image de production (node:20-alpine)
+.dockerignore
+.env.example            Variables d'environnement attendues
+package.json / package-lock.json
+```
 
-- Contraste du bouton principal « Lancer la boucle » remonté au-dessus du seuil WCAG AA (le dégradé d'origine tombait à ~3.7:1 avec le texte blanc).
+### Modèle de données (PostgreSQL)
+
+Deux tables, créées automatiquement au démarrage si `DATABASE_URL` est défini (`initDb`) :
+
+- **`users`** : `id` (uuid), `google_id` (unique), `email`, `name`, `picture`, `created_at`, `updated_at`.
+- **`runs`** : `id` (uuid), `user_id` (référence `users`), `request`, `task_type`, `status`, `stop_reason`, `writer_model`, `auditor_model`, `arbiter_model`, `final_document`, `result` (jsonb — objet complet de l'analyse : versions, audits, sources, appels, arbitrage), `total_cost`, `prompt_tokens`, `completion_tokens`, `created_at`, `updated_at`. Index sur `(user_id, created_at desc)`.
+
+Sans base configurée, aucune table n'est créée : l'authentification Google reste possible (session en mémoire), mais l'historique et le tableau de bord ne reflètent que les jobs encore présents dans la mémoire du processus (voir « Jobs et persistance »).
+
+### Authentification
+
+- **Mode normal** : OAuth Google. Cookie de session `httpOnly`, `secure` en production, `sameSite=lax`, durée de vie 7 jours.
+- **Mode développeur** (`DEV_BYPASS_AUTH=true`) : fournit un utilisateur factice (`dev@local`) sans passer par Google, pour tester en local. Le serveur refuse de démarrer si cette variable vaut `true` alors que `NODE_ENV=production` (`server.js`, garde-fou explicite).
+- Toutes les routes `/api/*` hormis `/api/me` et `/api/health` exigent une session authentifiée (`requireAuth`).
+
+### Routes API
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| GET | `/api/me` | Utilisateur courant et disponibilité de l'authentification Google |
+| GET | `/api/health` | État de santé : version, base de données, clés API configurées |
+| GET | `/auth/google` | Démarre le flux OAuth Google |
+| GET | `/auth/google/callback` | Retour du flux OAuth |
+| POST | `/auth/logout` | Déconnexion et destruction de session |
+| POST | `/api/jobs` | Crée une analyse (multipart, jusqu'à 3 documents joints) et démarre la boucle en tâche de fond |
+| GET | `/api/jobs/:id/events` | Flux Server-Sent Events de progression d'une analyse |
+| GET | `/api/history` | Historique des analyses de l'utilisateur connecté |
+| GET | `/api/dashboard` | Agrégats de consommation (coût, tokens, répartition par modèle) sur 90 jours |
+| GET | `/api/runs/:id/export/:format` | Export d'une analyse (`md`, `pdf`, `docx`, `xlsx`) |
+
+### Boucle d'analyse (`executeJob`)
+
+1. Vérifie la présence d'une clé OpenRouter (variable serveur ou saisie temporaire) et la validité de la demande (20 caractères minimum ou au moins une pièce jointe).
+2. Extrait le texte des documents joints (30 000 caractères maximum par fichier) et l'injecte dans la demande, précédé d'une consigne explicite empêchant le modèle d'exécuter des instructions qui s'y trouveraient (protection contre l'injection de prompt via document).
+3. Classe automatiquement la tâche (`detectTask`) sauf si la sélection des modèles est manuelle.
+4. Sélectionne les modèles rédacteur/auditeur/arbitre selon le type de tâche, ou retient ceux fournis par l'utilisateur (validés par une expression régulière stricte).
+5. Produit une rédaction initiale avec recherche web OpenRouter.
+6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, 10 sources maximum par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible sans anomalie critique/élevée ni source essentielle non vérifiée, sinon correction complète du document et nouveau cycle.
+7. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document.
+8. Enregistre le résultat en base (si configurée) et diffuse l'événement `complete`.
+
+À chaque étape, un événement est diffusé en SSE pour alimenter le fil de suivi de l'interface.
+
+### Diffusion temps réel (SSE)
+
+`GET /api/jobs/:id/events` rejoue d'abord tous les événements déjà émis pour ce job, puis reste ouvert (un ping toutes les 20 secondes maintient la connexion). Types d'événements émis : `models`, `insight`, `progress`, `source`, `audit`, `complete`, `error`. Les événements `progress` et `insight` portent un champ `cycle` explicite, ce qui permet au frontend de n'afficher qu'une seule entrée par étape (d'abord « en cours », puis enrichie de son constat détaillé) plutôt que deux fils redondants.
+
+### Jobs et persistance en mémoire
+
+Les jobs actifs et leurs événements SSE vivent dans une `Map` en mémoire du processus (nécessaire pour le flux SSE), indépendamment de PostgreSQL. `sweepJobs()` s'exécute toutes les 10 minutes et supprime les jobs terminés depuis plus de 2 heures sans client connecté, avec une borne dure à 500 jobs conservés quel que soit leur âge. Conséquences pratiques :
+
+- sans `DATABASE_URL`, l'historique et le dashboard ne montrent que les jobs encore présents dans cette mémoire (perdus au redémarrage) ;
+- avec plusieurs instances de l'application derrière un répartiteur de charge, le client SSE doit atteindre la même instance que celle qui a créé le job (pas de file d'attente partagée).
+
+## Sécurité et fiabilité
+
+- **Code source direct** : `server.js` et `public/*` sont le code réellement exécuté par l'application, sans étape de génération ni de réécriture au démarrage.
+- **Éviction périodique des tâches en mémoire** (`sweepJobs`) : borne la durée de rétention (2 heures) et le nombre maximal de jobs conservés (500), pour empêcher toute croissance mémoire illimitée du processus.
+- **Vérification TLS Postgres activée par défaut** en production, avec une option `DATABASE_CA_CERT` pour une autorité privée.
+- **Garde-fou `DEV_BYPASS_AUTH`** : le serveur refuse de démarrer si ce contournement d'authentification est combiné à `NODE_ENV=production`.
+- **Vérification des sources parallélisée**, avec une concurrence bornée, pour réduire la latence perçue lors des cycles d'audit.
+- **En-têtes de sécurité (`helmet`) et limitation de débit (`express-rate-limit`)**, notamment sur la création d'analyses (`POST /api/jobs`), pour limiter les abus et l'emballement des coûts.
+- **Builds reproductibles** : `package-lock.json` commité, installation via `npm ci` au build du conteneur (pas au démarrage).
+
+## Interface
+
+- Contraste du bouton principal « Lancer la boucle » conforme au seuil WCAG AA.
 - Badge « Non configurée » d'OpenRouter distingué de celui de Firecrawl (rouge/bloquant vs ambre/optionnel) : sans clé OpenRouter aucune analyse n'est possible, alors que Firecrawl n'est qu'une amélioration.
-- Ajout d'un bloc « Comment ça marche » visible avant connexion, et réduction de la hauteur excessive du panneau de résultats vide.
-- Les sélecteurs de modèles (Rédacteur/Auditeur/Arbitre) sont masqués entièrement en mode automatique, au lieu d'être grisés tout en occupant de l'espace.
-- **Fusion complète des deux fils de suivi en un seul** (« Suivi de l’analyse ») : chaque étape (rédaction, sources, audit, arbitrage) apparaît une seule fois, d'abord comme « en cours » puis enrichie en place avec son constat détaillé (dépliable), au lieu de produire deux entrées séparées et redondantes dans deux panneaux différents. Le serveur transmet désormais un `cycle` explicite sur les événements `progress`/`insight` pour permettre cet appariement fiable côté client.
-- **Correction d'un bug de rendu `hidden`** découvert pendant les tests de la fusion ci-dessus : `.empty{display:grid}` et `.grid{display:grid}` neutralisaient silencieusement l'attribut `hidden` (même spécificité CSS) — le panneau vide restait visible pendant une analyse en cours, et les sélecteurs de modèles masqués par la correction précédente ne l'étaient en réalité jamais visuellement. Un `[hidden]{display:none!important}` global corrige ce problème pour tous les éléments concernés, présents ou futurs.
-- Ajout de textes d'aide sous « Cycles maximum » / « Score cible » et d'une indication de durée typique près du bouton d'envoi.
-- Fusion des media queries dupliquées (950px/1200px) en un seul point de bascule responsive.
+- Bloc « Comment ça marche » visible avant connexion.
+- Sélecteurs de modèles (Rédacteur/Auditeur/Arbitre) masqués entièrement en mode automatique, au lieu d'être grisés tout en occupant de l'espace.
+- **Fil de suivi unique** (« Suivi de l'analyse ») : chaque étape (rédaction, sources, audit, arbitrage) apparaît une seule fois, d'abord comme « en cours » puis enrichie en place avec son constat détaillé (dépliable), au lieu de produire deux entrées séparées et redondantes dans deux panneaux différents. Le serveur transmet un `cycle` explicite sur les événements `progress`/`insight` pour permettre cet appariement fiable côté client.
+- Règle CSS globale `[hidden]{display:none!important}` : garantit que l'attribut `hidden` prime toujours sur les classes de mise en page (`.empty`, `.grid`), pour tous les éléments concernés, présents ou futurs.
+- Textes d'aide sous « Cycles maximum » / « Score cible » et indication de durée typique près du bouton d'envoi.
+- Point de bascule responsive unique (au lieu de media queries dupliquées).
 - Libellés de modèles raccourcis pour éviter la troncature dans les listes déroulantes sur mobile.
 - Indice visuel de défilement sur la barre d'onglets quand elle déborde (mobile).
 - Focus clavier harmonisé sur les boutons et onglets (même anneau que les champs de formulaire).
-- Thème clair ajouté, activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
+- Thème clair activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
 - Lien rapide « Historique ↓ » dans l'en-tête pour un accès direct sans défiler toute la page.
 
 ## Déploiement
@@ -44,7 +126,7 @@ Ce dépôt est un fork corrigé de [`newbizai2023-ops/Boucle-Contradictoire`](ht
 - Runtime : Node.js 20+
 - Base : PostgreSQL
 
-Ce fork n'est pas déployé sur une instance Render dédiée ; adapter `render.yaml` (nom de service, région) avant tout déploiement séparé de l'application d'origine.
+Adapter `render.yaml` (nom de service, région) à l'environnement cible avant tout déploiement.
 
 Variables Render attendues :
 
