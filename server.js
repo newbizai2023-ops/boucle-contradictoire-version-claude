@@ -25,6 +25,7 @@ import { modelLabel, resolveModels } from "./lib/models.js";
 import { mapWithConcurrency, usageOf, extractMessageText, parseJson, safeName } from "./lib/utils.js";
 import { extractUrls, annotationSources, sourceClass } from "./lib/sources.js";
 import { buildDashboard } from "./lib/dashboard.js";
+import { cycleProgress, PROGRESS_DRAFT, PROGRESS_ARBITER, PROGRESS_COMPLETE } from "./lib/progress.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -629,7 +630,7 @@ async function executeJob(job, user, body) {
   emit(job, "insight", { category: "strategy", message: `Tâche classée « ${task} ». ${modelLabel(models.writer)} rédige, ${modelLabel(models.auditor)} audite, ${modelLabel(models.arbiter)} arbitre.`, details: { models } });
   if (attachments.length) emit(job, "insight", { category: "documents", message: `${attachments.length} document(s) extrait(s) et ajouté(s) au contexte.`, details: { files: result.attachments } });
 
-  emit(job, "progress", { step: "draft", cycle: 0, percent: 8, message: "Rédaction initiale avec recherche web" });
+  emit(job, "progress", { step: "draft", cycle: 0, percent: PROGRESS_DRAFT, message: "Rédaction initiale avec recherche web" });
   const first = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: writerPrompt(task, request), web: true });
   let document = first.content;
   result.versions.push({ cycle: 0, content: document });
@@ -642,7 +643,7 @@ async function executeJob(job, user, body) {
   const sourceCache = new Map();
 
   for (let cycle = 1; cycle <= maxCycles; cycle += 1) {
-    emit(job, "progress", { step: "sources", cycle, percent: 12 + cycle * 12, message: `Cycle ${cycle} : vérification stricte des sources` });
+    emit(job, "progress", { step: "sources", cycle, percent: cycleProgress("sources", cycle, maxCycles), message: `Cycle ${cycle} : vérification stricte des sources` });
     const verified = firecrawlEnabled
       ? await verifySources(document, result.calls, firecrawlApiKey, job, sourceCache)
       : annotationSources(result.calls).map(source => ({ ...source, accessible: null, reason: "Vérification Firecrawl désactivée", sourceClass: sourceClass(source.url) }));
@@ -654,7 +655,7 @@ async function executeJob(job, user, body) {
       details: { total: verified.length }
     });
 
-    emit(job, "progress", { step: "audit", cycle, percent: 22 + cycle * 14, message: `Cycle ${cycle} : audit détaillé` });
+    emit(job, "progress", { step: "audit", cycle, percent: cycleProgress("audit", cycle, maxCycles), message: `Cycle ${cycle} : audit détaillé` });
     const auditCall = await callOpenRouter({ apiKey, model: models.auditor, system: auditorSystem, user: auditPrompt(request, document, verified, task), json: true, web: false });
     const audit = parseJson(auditCall.content, "L'audit", auditCall.finishReason);
     result.audits.push({ cycle, ...audit });
@@ -671,7 +672,7 @@ async function executeJob(job, user, body) {
       break;
     }
 
-    emit(job, "progress", { step: "correction", cycle, percent: 30 + cycle * 16, message: `Cycle ${cycle} : correction du document` });
+    emit(job, "progress", { step: "correction", cycle, percent: cycleProgress("correction", cycle, maxCycles), message: `Cycle ${cycle} : correction du document` });
     const correctionPrompt = `${taskGuidance[task] || taskGuidance.general_analysis}
 
 Corrige intégralement le document selon l'audit. Traite chaque anomalie critique et élevée. Supprime ou reformule toute affirmation non étayée. Préserve les éléments vérifiés. Rends tous les calculs reproductibles. Signale les divergences qui ne peuvent pas être tranchées. Maintiens la structure minimale imposée.
@@ -694,7 +695,7 @@ ${JSON.stringify(verified.map(s => ({ url: s.url, accessible: s.accessible, titl
     result.totalCost += correction.usage.cost;
   }
 
-  emit(job, "progress", { step: "arbiter", percent: 92, message: "Arbitrage final indépendant par Grok" });
+  emit(job, "progress", { step: "arbiter", percent: PROGRESS_ARBITER, message: "Arbitrage final indépendant par Grok" });
   const arbiterPrompt = `DEMANDE:
 ${request}
 
@@ -737,7 +738,7 @@ JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":
   }
   job.result = result;
   job.status = "complete";
-  emit(job, "complete", { percent: 100, message: "Analyse terminée", result });
+  emit(job, "complete", { percent: PROGRESS_COMPLETE, message: "Analyse terminée", result });
 }
 
 // ---------------------------------------------------------------------------

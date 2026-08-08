@@ -491,7 +491,8 @@ importé par un test.
 | `test/utils.test.js` | Concurrence bornée, lecture des réponses OpenRouter, parsing JSON tolérant, noms d'export |
 | `test/sources.test.js` | Extraction, dédoublonnage et classification des sources |
 | `test/dashboard.test.js` | Agrégation des coûts et tokens par modèle |
-| `test/interface.test.js` | Cohérence entre `public/` et le serveur (sélecteurs, modèles, formats d'export, extensions) |
+| `test/progress.test.js` | Monotonie et bornes de la barre de progression |
+| `test/interface.test.js` | Cohérence entre `public/` et le serveur (sélecteurs, modèles, formats d'export, extensions, limites d'upload) |
 
 `test/interface.test.js` mérite une mention : il compare le vocabulaire du formulaire à celui du
 serveur. C'est la classe de bugs la plus coûteuse du projet, parce qu'elle ne produit aucune erreur

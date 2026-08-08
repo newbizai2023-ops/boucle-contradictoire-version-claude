@@ -15,6 +15,28 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.3.2] - 2026-08-08
+
+### Corrigé
+
+- **La barre de progression reculait au passage d'un cycle au suivant.** Les pourcentages étaient
+  calculés par trois formules affines du numéro de cycle (`12 + cycle × 12` pour la vérification
+  des sources, `22 + cycle × 14` pour l'audit, `30 + cycle × 16` pour la correction) qui ignoraient
+  `maxCycles` et se chevauchaient : avec le réglage par défaut de trois cycles, la barre affichait
+  46 % à la fin du cycle 1 puis **36 %** au début du cycle 2, et de nouveau 62 % puis 48 %. Les
+  mêmes formules dépassaient 100 % dès quatre cycles (94 %, puis 110 % au cinquième), ce que seule
+  la borne appliquée côté client masquait.
+
+  Les étapes de cycle se répartissent désormais dans une bande [10 %, 90 %] découpée en tranches
+  égales — une par cycle, elle-même partagée entre les trois étapes (`lib/progress.js`). La
+  progression est strictement croissante quel que soit le nombre de cycles, et les bornes fixes
+  (rédaction initiale 8 %, arbitrage 92 %, fin 100 %) encadrent l'ensemble. Un arrêt anticipé de la
+  boucle fait sauter la barre vers l'arbitrage, sans jamais la faire revenir en arrière.
+
+  Suites effectivement émises, vérifiées de bout en bout sur le flux SSE :
+  - trois cycles : 8 → 10 → 19 → 28 → 37 → 46 → 54 → 63 → 72 → 92 → 100 ;
+  - cinq cycles : 8 → 10 → 15 → 21 → … → 74 → 79 → 92 → 100.
+
 ## [1.3.1] - 2026-08-08
 
 ### Corrigé
