@@ -62,12 +62,13 @@ Vérifie les informations importantes à l’aide de sources récentes et fiable
         <div class="section-heading"><span class="step-number">2</span><div><h2>Configuration</h2><p>Choisis le niveau de contrôle et les modèles.</p></div></div>
         <label class="option-card"><span class="switch-row"><input id="autoModel" type="checkbox" checked><span><strong>Sélection automatique des modèles</strong><small>L’orchestrateur choisit les modèles selon la tâche.</small></span></span></label>
 
-        <fieldset class="option-card" id="diversifyOption">
-          <legend><strong>Second avis indépendant</strong><small>Une seconde analyse du même sujet par un autre modèle, qui ne voit pas la première. Les désaccords deviennent des questions à instruire. Coûte deux appels de modèle supplémentaires.</small></legend>
-          <span class="radio-row"><label><input type="radio" name="diversify" value="auto" checked> Automatique <small>(juridique et financier)</small></label></span>
-          <span class="radio-row"><label><input type="radio" name="diversify" value="true"> Toujours</label></span>
-          <span class="radio-row"><label><input type="radio" name="diversify" value="false"> Jamais</label></span>
-        </fieldset>
+        <div class="option-card" id="diversifyOption" role="radiogroup" aria-labelledby="diversifyLabel">
+          <strong id="diversifyLabel">Second avis indépendant</strong>
+          <small>Une seconde analyse du même sujet par un autre modèle, qui ne voit pas la première. Les désaccords deviennent des questions à instruire. Coûte deux appels de modèle supplémentaires.</small>
+          <div class="radio-row"><label><input type="radio" name="diversify" value="auto" checked><span>Automatique <small>juridique et financier</small></span></label></div>
+          <div class="radio-row"><label><input type="radio" name="diversify" value="true"><span>Toujours</span></label></div>
+          <div class="radio-row"><label><input type="radio" name="diversify" value="false"><span>Jamais</span></label></div>
+        </div>
         <label id="firecrawlOption" class="option-card disabled-option" aria-disabled="true">
           <span class="switch-row"><input id="webSearch" type="checkbox" disabled><span><strong>Vérification approfondie des sources via Firecrawl</strong><small id="webSearchHelp">Saisis une clé Firecrawl valide pour activer cette option. La recherche Web OpenRouter reste active.</small></span></span>
         </label>
