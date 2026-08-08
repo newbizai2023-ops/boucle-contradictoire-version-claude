@@ -15,6 +15,15 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.3] - 2026-08-08
+
+### Corrigé
+
+- `OPENROUTER_MAX_TOKENS` porté de 7000 à 12000 : constaté en production, un audit détaillé
+  (nombreuses anomalies décrites en détail) pouvait dépasser 7000 tokens et se faire tronquer en
+  plein milieu du JSON (`finish_reason=length`), provoquant l'échec de l'analyse — repéré grâce au
+  message d'erreur explicite ajouté en 1.1.1.
+
 ## [1.1.2] - 2026-08-08
 
 ### Supprimé

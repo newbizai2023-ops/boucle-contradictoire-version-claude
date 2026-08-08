@@ -49,7 +49,10 @@ if (!process.env.SESSION_SECRET) {
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_TIMEOUT_MS = 240_000;
-const OPENROUTER_MAX_TOKENS = 7000;
+// Une valeur trop basse tronque en plein milieu les réponses longues (document rédigé ou JSON
+// d'audit détaillé avec de nombreuses anomalies), provoquant un échec de parsing JSON en aval
+// (finish_reason="length", voir parseJson). Constaté en production avec 7000.
+const OPENROUTER_MAX_TOKENS = 12_000;
 
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
 const FIRECRAWL_TIMEOUT_MS = 55_000;
