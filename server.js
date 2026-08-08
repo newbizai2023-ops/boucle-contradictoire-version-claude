@@ -434,22 +434,35 @@ async function requestOpenRouter({ apiKey, model, system, user, json = false, we
   };
 }
 
-/** Réessaie sans recherche web puis, pour Kimi, bascule sur Claude Sonnet si le modèle ne renvoie que des réponses vides. */
-async function callOpenRouter(args) {
+// Modèle de repli utilisé quand un modèle choisi (auto ou manuel) ne renvoie que des réponses
+// vides : Claude Sonnet est retenu car c'est le modèle par défaut le plus polyvalent (utilisé
+// pour current_research/general_analysis), donc le choix le plus sûr indépendamment du domaine.
+const FALLBACK_MODEL = "~anthropic/claude-sonnet-latest";
+
+/** Appelle un modèle, et si la réponse est vide, réessaie une fois sans recherche web (inutile de
+ *  réessayer sans web si web était déjà désactivé : l'appel serait strictement identique). */
+async function requestWithRetry(args) {
   const primary = await requestOpenRouter(args);
+  if (primary.content || args.web === false) return primary;
+  console.warn(`[openrouter] réponse vide modèle=${args.model} web=${args.web}; nouvel essai sans recherche web`);
+  return requestOpenRouter({ ...args, web: false });
+}
+
+/** Bascule sur un modèle de repli (avec le même traitement de réessai) si le modèle demandé ne
+ *  renvoie toujours aucun contenu après réessai. Corrige un cas rencontré en production où le
+ *  modèle de repli lui-même ne bénéficiait que d'une seule tentative (contrairement au modèle
+ *  d'origine) et pouvait donc faire échouer toute l'analyse pour la même raison qu'on cherchait
+ *  justement à contourner. */
+async function callOpenRouter(args) {
+  const primary = await requestWithRetry(args);
   if (primary.content) return primary;
 
-  console.warn(`[openrouter] réponse vide modèle=${args.model} web=${args.web}; nouvel essai sans recherche web`);
-  const retry = await requestOpenRouter({ ...args, web: false });
-  if (retry.content) return retry;
-
-  if (String(args.model).includes("moonshotai/kimi")) {
-    const fallback = "~anthropic/claude-sonnet-latest";
-    console.warn(`[openrouter] bascule de ${args.model} vers ${fallback} après deux réponses vides`);
-    const alternative = await requestOpenRouter({ ...args, model: fallback, web: args.web });
+  if (args.model !== FALLBACK_MODEL) {
+    console.warn(`[openrouter] bascule de ${args.model} vers ${FALLBACK_MODEL} après réponses vides`);
+    const alternative = await requestWithRetry({ ...args, model: FALLBACK_MODEL });
     if (alternative.content) return { ...alternative, fallbackFrom: args.model };
   }
-  throw new Error(`Réponse vide du modèle ${args.model} après nouvel essai.`);
+  throw new Error(`Réponse vide du modèle ${args.model}${args.model !== FALLBACK_MODEL ? ` et du repli ${FALLBACK_MODEL}` : ""} après nouvel essai.`);
 }
 
 // ---------------------------------------------------------------------------
