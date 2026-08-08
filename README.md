@@ -2,7 +2,7 @@
 
 Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historique PostgreSQL, exports et tableau de bord de consommation.
 
-**Version actuelle : 1.1.7** — voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
+**Version courante** : voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
 
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
 
@@ -25,7 +25,16 @@ Application web Node.js qui orchestre une analyse multi-modèles avec recherche 
 ### Arborescence
 
 ```text
-server.js            Backend complet : auth, prompts, boucle contradictoire, routes API, exports, SSE
+server.js            Câblage HTTP : auth, prompts, boucle contradictoire, routes API, exports, SSE
+lib/                 Logique sans effet de bord, importable par les tests
+  task.js             Classification du domaine et cadrage du rédacteur
+  models.js           Modèles par défaut, liste blanche, résolution auto/manuelle
+  audit.js            Lecture du verdict d'audit et condition d'arrêt
+  progress.js         Position des étapes sur la barre de progression
+  sources.js          Extraction, dédoublonnage et classification des sources
+  dashboard.js        Agrégation des coûts et tokens par modèle
+  utils.js            Concurrence bornée, parsing JSON tolérant, noms d'export
+test/                Suite node:test (npm test)
 public/
   index.html          Structure HTML de l'interface
   app.js               Logique frontend : connexion, formulaire, suivi SSE, historique, dashboard
@@ -75,7 +84,7 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 1. Vérifie la présence d'une clé OpenRouter (variable serveur ou saisie temporaire) et la validité de la demande (20 caractères minimum ou au moins une pièce jointe).
 2. Extrait le texte des documents joints (30 000 caractères maximum par fichier) et l'injecte dans la demande, précédé d'une consigne explicite empêchant le modèle d'exécuter des instructions qui s'y trouveraient (protection contre l'injection de prompt via document).
 3. Classe automatiquement la tâche (`detectTask`) sauf si la sélection des modèles est manuelle.
-4. Sélectionne les modèles rédacteur/auditeur/arbitre selon le type de tâche, ou retient ceux fournis par l'utilisateur (validés par une expression régulière stricte).
+4. Sélectionne les modèles rédacteur/auditeur/arbitre selon le type de tâche. En sélection manuelle uniquement, retient ceux fournis par l'utilisateur, contrôlés contre une liste blanche côté serveur (`ALLOWED_MODELS`) — le sélecteur de l'interface n'est pas une protection.
 5. Produit une rédaction initiale avec recherche web OpenRouter.
 6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, 10 sources maximum par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible, sans anomalie critique/élevée, sans source essentielle non vérifiée, sans demande explicite de nouveau cycle et sans verdict `CORRIGER` de l'auditeur ; sinon correction complète du document et nouveau cycle. Les motifs de poursuite sont affichés dans le fil de suivi.
 7. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document.
@@ -491,6 +500,7 @@ importé par un test.
 | `test/utils.test.js` | Concurrence bornée, lecture des réponses OpenRouter, parsing JSON tolérant, noms d'export |
 | `test/sources.test.js` | Extraction, dédoublonnage et classification des sources |
 | `test/dashboard.test.js` | Agrégation des coûts et tokens par modèle |
+| `test/packaging.test.js` | Cohérence entre les imports de `server.js` et le contenu de l image Docker |
 | `test/audit.test.js` | Lecture du verdict d'audit et condition d'arrêt de la boucle |
 | `test/progress.test.js` | Monotonie et bornes de la barre de progression |
 | `test/interface.test.js` | Cohérence entre `public/` et le serveur (sélecteurs, modèles, formats d'export, extensions, limites d'upload) |

@@ -15,6 +15,28 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.4.1] - 2026-08-08
+
+### Corrigé
+
+- **L'image Docker ne démarrait plus depuis la 1.3.0.** Le `Dockerfile` ne copiait que `server.js`
+  et `public/` ; l'extraction de la logique dans `lib/` a donc produit un conteneur qui s'arrêtait
+  immédiatement sur `Cannot find module /app/lib/task.js`. Le défaut est passé inaperçu pendant
+  quatre versions parce que Render déploie depuis le dépôt via `render.yaml` et non depuis le
+  `Dockerfile` : seule l'image était touchée. `COPY lib ./lib` est ajouté.
+- Un test de packaging (`test/packaging.test.js`) vérifie désormais que tout ce que `server.js`
+  importe est effectivement copié dans l'image, et que le point d'entrée du conteneur correspond à
+  celui déclaré par `package.json`.
+
+### Documentation
+
+- Le README annonçait « Version actuelle : 1.1.7 » en dur, dans la phrase même qui explique que
+  `package.json` est l'unique source de vérité. Le numéro figé est retiré au profit d'un renvoi au
+  changelog.
+- La description de la sélection des modèles mentionnait encore une validation « par une expression
+  régulière stricte », remplacée par une liste blanche en 1.2.0.
+- L'arborescence décrit `lib/` et `test/`, absents depuis leur création.
+
 ## [1.4.0] - 2026-08-08
 
 ### Corrigé
