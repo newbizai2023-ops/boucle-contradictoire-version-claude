@@ -15,6 +15,61 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.5.0] - 2026-08-08
+
+### Ajouté
+
+- **Journal de fin d'analyse.** Rien n'était journalisé à l'issue d'une exécution : la seule façon
+  de savoir qu'une analyse s'était bien terminée était de constater l'absence d'erreur, ce qui ne
+  distingue pas un succès d'un processus interrompu. Chaque exécution émet désormais une ligne
+  `[job] fin <id> statut=… tâche=… cycles=… score=… arbitrage=… sources=4/4 appels=5 tokens=…
+  coût=$… document=…c durée=…s historisé=oui`, et chaque échec une ligne `[job] échec <id> durée=…
+  raison=…`.
+
+- **Historisation complète de toutes les analyses.** Le détail vivait déjà dans la colonne `result`
+  (jsonb), mais sous une forme opaque : impossible d'interroger les sources, les scores ou la
+  consommation sans désérialiser chaque exécution. Trois tables normalisées s'y ajoutent —
+  `run_sources` (URL, domaine, accessibilité, catégorie, code HTTP, volume extrait, motif d'échec),
+  `run_audits` (cycle, score global, scores détaillés, verdict, nombre d'anomalies dont sévères) et
+  `run_calls` (rôle, modèle, tokens, coût, `finish_reason`, modèle d'origine en cas de bascule) —
+  ainsi que des colonnes résumées sur `runs` (`cycles`, `final_score`, `arbiter_decision`,
+  `arbiter_confidence`, `sources_total`, `sources_accessible`, `document_chars`, `duration_ms`,
+  `firecrawl_enabled`, `error`). L'écriture se fait en une transaction : une exécution
+  partiellement historisée fausserait silencieusement les statistiques.
+
+- **Les analyses en échec sont enregistrées elles aussi.** Seules les analyses abouties étaient
+  conservées : un échec ne laissait aucune trace exploitable, ni le document déjà rédigé, ni les
+  cycles déjà payés. La dernière version rédigée est désormais promue en document final, et
+  l'exécution est enregistrée avec `status='error'` et le motif.
+
+- **`GET /api/runs/:id`** — consultation d'une exécution passée. Seul l'export existait :
+  l'historique ne permettait pas de relire un document, ses audits ou ses sources depuis
+  l'interface.
+
+- **`GET /api/analytics`** — agrégats sur l'ensemble des exécutions : totaux (validées, rejetées,
+  en échec, score moyen, cycles moyens, durée moyenne, coût), répartition par type de tâche, par
+  modèle et par rôle, ventilation des sources par état et par catégorie, domaines les plus cités
+  avec leur taux d'accessibilité réel, progression des scores par cycle et critères d'audit les
+  plus faibles.
+
+- **Interface de consultation.** Les lignes de l'historique deviennent cliquables et ouvrent le
+  détail complet de l'analyse (document, arbitrage, scores par cycle, sources contrôlées,
+  consommation, liens d'export) ; le tableau de bord est remplacé par un panneau « Données
+  historisées » à quatre onglets (vue d'ensemble, sources, audits, consommation).
+
+### Modifié
+
+- L'agrégation est écrite **une seule fois**, sur la forme canonique des lignes historisées
+  (`lib/analytics.js`). Le chemin PostgreSQL lit ces lignes telles quelles ; `normalizeRun()` y
+  ramène un job encore en mémoire lorsque aucune base n'est configurée. Vérifié : à données
+  identiques, les deux chemins renvoient exactement la même réponse. Aucune colonne volumineuse
+  n'est rapatriée pour les statistiques — ni le document, ni le contenu des réponses de modèle.
+
+### Corrigé
+
+- `sourceRows()`, `auditRows()` et `callRows()` levaient une exception sur une collection `null`
+  (un paramètre par défaut ne couvre que `undefined`). Défaut trouvé par les tests ajoutés ici.
+
 ## [1.4.2] - 2026-08-08
 
 ### Modifié

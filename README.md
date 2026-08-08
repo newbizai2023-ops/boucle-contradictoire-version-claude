@@ -30,6 +30,8 @@ lib/                 Logique sans effet de bord, importable par les tests
   task.js             Classification du domaine et cadrage du rédacteur
   models.js           Modèles par défaut, liste blanche, résolution auto/manuelle
   audit.js            Lecture du verdict d'audit et condition d'arrêt
+  persistence.js      Mise en forme des lignes historisées et journaux de fin d'analyse
+  analytics.js        Agrégats sur l'ensemble des exécutions
   progress.js         Position des étapes sur la barre de progression
   sources.js          Extraction, dédoublonnage et classification des sources
   dashboard.js        Agrégation des coûts et tokens par modèle
@@ -51,10 +53,13 @@ package.json / package-lock.json
 
 ### Modèle de données (PostgreSQL)
 
-Deux tables, créées automatiquement au démarrage si `DATABASE_URL` est défini (`initDb`) :
+Créées automatiquement au démarrage si `DATABASE_URL` est défini (`initDb`) :
 
 - **`users`** : `id` (uuid), `google_id` (unique), `email`, `name`, `picture`, `created_at`, `updated_at`.
-- **`runs`** : `id` (uuid), `user_id` (référence `users`), `request`, `task_type`, `status`, `stop_reason`, `writer_model`, `auditor_model`, `arbiter_model`, `final_document`, `result` (jsonb — objet complet de l'analyse : versions, audits, sources, appels, arbitrage), `total_cost`, `prompt_tokens`, `completion_tokens`, `created_at`, `updated_at`. Index sur `(user_id, created_at desc)`.
+- **`runs`** : `id` (uuid), `user_id` (référence `users`), `request`, `task_type`, `status`, `stop_reason`, `writer_model`, `auditor_model`, `arbiter_model`, `final_document`, `result` (jsonb — objet complet de l'analyse), `total_cost`, `prompt_tokens`, `completion_tokens`, `created_at`, `updated_at`, plus des colonnes résumées calculées à l'écriture : `cycles`, `final_score`, `arbiter_decision`, `arbiter_confidence`, `sources_total`, `sources_accessible`, `document_chars`, `duration_ms`, `firecrawl_enabled`, `error`. Index sur `(user_id, created_at desc)`.
+- **`run_sources`**, **`run_audits`**, **`run_calls`** : le détail d'une exécution sous forme requêtable — une ligne par source contrôlée, par cycle d'audit et par appel de modèle. Le jsonb `result` reste la source de vérité pour la relecture intégrale ; ces tables existent pour pouvoir filtrer et agréger sans le désérialiser. Écrites dans la même transaction que la ligne parente, supprimées en cascade avec elle.
+
+Les analyses en échec sont enregistrées comme les autres (`status='error'`, colonne `error` renseignée), avec le document déjà rédigé et les cycles déjà consommés.
 
 Sans base configurée, aucune table n'est créée : l'authentification Google reste possible (session en mémoire), mais l'historique et le tableau de bord ne reflètent que les jobs encore présents dans la mémoire du processus (voir « Jobs et persistance »).
 
@@ -77,6 +82,8 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 | GET | `/api/jobs/:id/events` | Flux Server-Sent Events de progression d'une analyse |
 | GET | `/api/history` | Historique des analyses de l'utilisateur connecté |
 | GET | `/api/dashboard` | Agrégats de consommation (coût, tokens, répartition par modèle) sur 90 jours |
+| GET | `/api/runs/:id` | Détail complet d'une exécution passée (document, audits, sources, appels) |
+| GET | `/api/analytics` | Agrégats sur toutes les exécutions (sources, audits, consommation) |
 | GET | `/api/runs/:id/export/:format` | Export d'une analyse (`md`, `pdf`, `docx`, `xlsx`) |
 
 ### Boucle d'analyse (`executeJob`)
@@ -522,6 +529,8 @@ importé par un test.
 | `test/dashboard.test.js` | Agrégation des coûts et tokens par modèle |
 | `test/packaging.test.js` | Cohérence entre les imports de `server.js` et le contenu de l image Docker |
 | `test/audit.test.js` | Lecture du verdict d'audit et condition d'arrêt de la boucle |
+| `test/persistence.test.js` | Lignes historisées (sources, audits, appels) et journaux de fin |
+| `test/analytics.test.js` | Agrégats inter-exécutions et forme canonique partagée |
 | `test/progress.test.js` | Monotonie et bornes de la barre de progression |
 | `test/interface.test.js` | Cohérence entre `public/` et le serveur (sélecteurs, modèles, formats d'export, extensions, limites d'upload) |
 

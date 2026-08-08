@@ -310,3 +310,19 @@ footer { padding: 26px 0 40px; color: var(--muted); text-align: center; font-siz
   .feed-item.error > div { padding: 11px; }
   .current-step { font-size: 1rem; }
 }
+
+/* Historique consultable et données historisées ---------------------------- */
+.history-row { cursor: pointer; }
+.history-row:hover, .history-row:focus-visible { background: var(--surface-2, rgba(127, 127, 127, .12)); outline: none; }
+.history-row:focus-visible { box-shadow: inset 0 0 0 2px currentColor; }
+.status-chip { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .8em; white-space: nowrap; }
+.status-chip.validated { background: rgba(34, 160, 90, .18); }
+.status-chip.rejected  { background: rgba(200, 60, 60, .18); }
+.status-chip.error     { background: rgba(200, 60, 60, .28); }
+.run-detail { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border, rgba(127,127,127,.3)); }
+.run-detail details { margin: .75rem 0; }
+.run-detail summary { cursor: pointer; font-weight: 600; padding: .35rem 0; }
+.run-detail pre { max-height: 28rem; overflow: auto; }
+.atab-panel { display: none; }
+.atab-panel.active { display: block; }
+.atab-panel h3 { margin: 1.5rem 0 .5rem; }

@@ -110,8 +110,24 @@ Vérifie les informations importantes à l’aide de sources récentes et fiable
       <section id="scores" class="tab-panel"></section><section id="sources" class="tab-panel"></section><section id="audits" class="tab-panel"></section><section id="usage" class="tab-panel"></section>
     </div>
   </section>
-  <section id="history" class="panel full"><div class="section-title"><h2>Historique</h2><button id="refreshHistory" class="secondary">Actualiser</button></div><div id="historyList"></div></section>
-  <section class="panel full"><h2>Tableau de bord de consommation</h2><div id="dashboard"></div></section>
+  <section id="history" class="panel full">
+    <div class="section-title"><div><p class="eyebrow">HISTORIQUE</p><h2>Analyses passées</h2><p>Sélectionne une ligne pour relire son document, ses audits et ses sources.</p></div><button id="refreshHistory" class="secondary">Actualiser</button></div>
+    <div id="historyList"></div>
+    <div id="runDetail" class="run-detail" hidden></div>
+  </section>
+  <section class="panel full">
+    <div class="section-title"><div><p class="eyebrow">DONNÉES HISTORISÉES</p><h2>Toutes les analyses</h2><p>Agrégats calculés sur l’ensemble des exécutions enregistrées.</p></div></div>
+    <div class="tabs-wrap"><nav class="tabs atabs" role="tablist">
+      <button type="button" class="atab active" data-atab="analyticsOverview">Vue d’ensemble</button>
+      <button type="button" class="atab" data-atab="analyticsSources">Sources</button>
+      <button type="button" class="atab" data-atab="analyticsAudits">Audits</button>
+      <button type="button" class="atab" data-atab="dashboard">Consommation</button>
+    </nav></div>
+    <section id="analyticsOverview" class="atab-panel active"></section>
+    <section id="analyticsSources" class="atab-panel"></section>
+    <section id="analyticsAudits" class="atab-panel"></section>
+    <section id="dashboard" class="atab-panel"></section>
+  </section>
 </main>
 <footer>Aucune clé API réelle n’est incluse dans le dépôt. · <span id="releaseFooter">Release…</span></footer>
 <script type="module" src="/app.js"></script>

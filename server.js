@@ -27,6 +27,8 @@ import { extractUrls, annotationSources, sourceClass } from "./lib/sources.js";
 import { buildDashboard } from "./lib/dashboard.js";
 import { cycleProgress, PROGRESS_DRAFT, PROGRESS_ARBITER, PROGRESS_COMPLETE } from "./lib/progress.js";
 import { shouldStopAfterAudit } from "./lib/audit.js";
+import { runSummary, sourceRows, auditRows, callRows, completionLogLine, failureLogLine } from "./lib/persistence.js";
+import { buildAnalytics, normalizeRun } from "./lib/analytics.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -141,6 +143,69 @@ async function initDb() {
       updated_at timestamptz DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS runs_user_created_idx ON runs(user_id, created_at DESC);
+
+    -- Colonnes resumees ajoutees apres coup : ADD COLUMN IF NOT EXISTS rend l'initialisation
+    -- rejouable sur une base existante sans outil de migration.
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS error text;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS cycles integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS final_score integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_decision text;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_confidence integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS sources_total integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS sources_accessible integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS document_chars integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS duration_ms bigint;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS firecrawl_enabled boolean;
+
+    -- Tables normalisees : le detail vit deja dans result (jsonb), mais sous une forme qu'on ne
+    -- peut ni filtrer ni agréger sans désérialiser chaque exécution.
+    CREATE TABLE IF NOT EXISTS run_sources (
+      id bigserial PRIMARY KEY,
+      run_id uuid NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      url text NOT NULL,
+      host text,
+      origin text,
+      accessible boolean,
+      source_class text,
+      title text,
+      status_code integer,
+      characters integer,
+      reason text,
+      created_at timestamptz DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS run_sources_run_idx ON run_sources(run_id);
+    CREATE INDEX IF NOT EXISTS run_sources_host_idx ON run_sources(host);
+
+    CREATE TABLE IF NOT EXISTS run_audits (
+      id bigserial PRIMARY KEY,
+      run_id uuid NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      cycle integer NOT NULL,
+      score_global integer,
+      scores jsonb NOT NULL DEFAULT '{}'::jsonb,
+      decision text,
+      anomalies integer,
+      severe_anomalies integer,
+      resume text,
+      created_at timestamptz DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS run_audits_run_idx ON run_audits(run_id, cycle);
+
+    CREATE TABLE IF NOT EXISTS run_calls (
+      id bigserial PRIMARY KEY,
+      run_id uuid NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      seq integer NOT NULL,
+      role text,
+      model text,
+      provider text,
+      prompt_tokens bigint DEFAULT 0,
+      completion_tokens bigint DEFAULT 0,
+      cost numeric(14,6) DEFAULT 0,
+      finish_reason text,
+      fallback_from text,
+      created_at timestamptz DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS run_calls_run_idx ON run_calls(run_id);
+    CREATE INDEX IF NOT EXISTS run_calls_model_idx ON run_calls(model);
   `);
   if (process.env.DEV_BYPASS_AUTH === "true") {
     // Garantit que l'utilisateur factice du mode développeur satisfait la contrainte de clé
@@ -572,18 +637,84 @@ function sweepJobs() {
 }
 setInterval(sweepJobs, JOB_SWEEP_INTERVAL_MS).unref();
 
-async function saveRun(userId, result, request, task, models) {
-  if (!pool) return;
-  const promptTokens = result.calls.reduce((n, c) => n + Number(c.usage?.prompt_tokens || 0), 0);
-  const completionTokens = result.calls.reduce((n, c) => n + Number(c.usage?.completion_tokens || 0), 0);
-  await pool.query(
-    `INSERT INTO runs (id,user_id,request,task_type,status,stop_reason,writer_model,auditor_model,arbiter_model,final_document,result,total_cost,prompt_tokens,completion_tokens)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-    [result.id, userId, request, task, result.status, result.stopReason, models.writer, models.auditor, models.arbiter, result.finalDocument, JSON.stringify(result), result.totalCost, promptTokens, completionTokens]
-  );
+/** Insere plusieurs lignes en un seul aller-retour. Le lot est decoupe pour rester sous la limite
+ *  de parametres d'une requete Postgres, meme si une analyse produisait un jour beaucoup de lignes. */
+async function insertRows(client, table, rows, chunkSize = 200) {
+  if (!rows.length) return;
+  const columns = Object.keys(rows[0]);
+  for (let start = 0; start < rows.length; start += chunkSize) {
+    const chunk = rows.slice(start, start + chunkSize);
+    const values = [];
+    const placeholders = chunk.map((row, rowIndex) => {
+      const slots = columns.map((column, columnIndex) => {
+        const value = row[column];
+        values.push(value !== null && typeof value === "object" ? JSON.stringify(value) : value);
+        return `$${rowIndex * columns.length + columnIndex + 1}`;
+      });
+      return `(${slots.join(",")})`;
+    });
+    await client.query(`INSERT INTO ${table} (${columns.join(",")}) VALUES ${placeholders.join(",")}`, values);
+  }
+}
+
+/** Historise une execution : la ligne de synthese, le detail jsonb, puis les lignes normalisees
+ *  (sources, audits, appels) qui rendent ces donnees requetables.
+ *
+ *  Ecrit aussi les executions en echec (`error` renseigne) : auparavant seules les analyses
+ *  abouties etaient conservees, si bien qu'un echec ne laissait aucune trace exploitable — ni le
+ *  document deja redige, ni les cycles deja payes.
+ *
+ *  Le tout dans une transaction : une execution partiellement historisee (ligne parente sans ses
+ *  sources) fausserait silencieusement les statistiques. */
+async function saveRun(userId, result, { request, task, models, error = null, durationMs = null }) {
+  if (!pool) return false;
+  const summary = runSummary(result);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO runs (id,user_id,request,task_type,status,stop_reason,writer_model,auditor_model,arbiter_model,
+                         final_document,result,total_cost,prompt_tokens,completion_tokens,
+                         error,cycles,final_score,arbiter_decision,arbiter_confidence,
+                         sources_total,sources_accessible,document_chars,duration_ms,firecrawl_enabled)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       ON CONFLICT (id) DO UPDATE SET
+         status=EXCLUDED.status, stop_reason=EXCLUDED.stop_reason, final_document=EXCLUDED.final_document,
+         result=EXCLUDED.result, total_cost=EXCLUDED.total_cost, prompt_tokens=EXCLUDED.prompt_tokens,
+         completion_tokens=EXCLUDED.completion_tokens, error=EXCLUDED.error, cycles=EXCLUDED.cycles,
+         final_score=EXCLUDED.final_score, arbiter_decision=EXCLUDED.arbiter_decision,
+         arbiter_confidence=EXCLUDED.arbiter_confidence, sources_total=EXCLUDED.sources_total,
+         sources_accessible=EXCLUDED.sources_accessible, document_chars=EXCLUDED.document_chars,
+         duration_ms=EXCLUDED.duration_ms, firecrawl_enabled=EXCLUDED.firecrawl_enabled, updated_at=NOW()`,
+      [
+        result.id, userId, request, task, result.status, result.stopReason ?? null,
+        models.writer, models.auditor, models.arbiter,
+        result.finalDocument ?? null, JSON.stringify(result), result.totalCost,
+        summary.promptTokens, summary.completionTokens,
+        error, summary.cycles, summary.finalScore, summary.arbiterDecision, summary.arbiterConfidence,
+        summary.sourcesTotal, summary.sourcesAccessible, summary.documentChars,
+        durationMs, result.firecrawlEnabled ?? null
+      ]
+    );
+    // Rejouable : une reprise ne doit pas doubler les lignes filles.
+    for (const table of ["run_sources", "run_audits", "run_calls"]) {
+      await client.query(`DELETE FROM ${table} WHERE run_id=$1`, [result.id]);
+    }
+    await insertRows(client, "run_sources", sourceRows(result.id, result.sources));
+    await insertRows(client, "run_audits", auditRows(result.id, result.audits));
+    await insertRows(client, "run_calls", callRows(result.id, result.calls));
+    await client.query("COMMIT");
+    return true;
+  } catch (databaseError) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw databaseError;
+  } finally {
+    client.release();
+  }
 }
 
 async function executeJob(job, user, body) {
+  const startedAt = Date.now();
   const apiKey = process.env.OPENROUTER_API_KEY || String(body.apiKey || "").trim();
   const firecrawlApiKey = process.env.FIRECRAWL_API_KEY || String(body.firecrawlApiKey || "").trim();
   if (!apiKey) throw new Error("Clé OpenRouter absente.");
@@ -632,6 +763,10 @@ async function executeJob(job, user, body) {
     status: "running",
     createdAt: new Date().toISOString()
   };
+
+  // Rendu accessible au gestionnaire d'erreur : une analyse interrompue en cours de route doit
+  // pouvoir être historisée avec ce qu'elle avait déjà produit (document rédigé, cycles payés).
+  job.partial = { result, request, task, models, startedAt };
 
   emit(job, "models", { message: "Modèles sélectionnés", task, models });
   emit(job, "insight", { category: "strategy", message: `Tâche classée « ${task} ». ${modelLabel(models.writer)} rédige, ${modelLabel(models.auditor)} audite, ${modelLabel(models.arbiter)} arbitre.`, details: { models } });
@@ -741,14 +876,18 @@ JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":
   // signalée, pas fatale.
   // `persisted` décrit l'enregistrement en base : faux sans DATABASE_URL (mode mémoire assumé,
   // sans avertissement) comme après un échec d'écriture (anormal, donc signalé à l'utilisateur).
-  result.persisted = Boolean(pool);
+  const durationMs = Date.now() - startedAt;
+  result.durationMs = durationMs;
+  result.persisted = false;
   try {
-    await saveRun(user.id, result, request, task, models);
+    result.persisted = await saveRun(user.id, result, { request, task, models, durationMs });
   } catch (error) {
-    result.persisted = false;
     console.error(`[db] Enregistrement de l'exécution ${result.id} impossible : ${error.message}`);
     emit(job, "insight", { category: "persistence", message: "Analyse terminée, mais son enregistrement en base a échoué : elle n'apparaîtra pas dans l'historique. Exporte le document si tu souhaites le conserver.", details: { reason: error.message } });
   }
+  // Journal de fin : sans lui, la seule façon de constater qu'une analyse s'est bien terminée
+  // était l'absence d'erreur, ce qui ne distingue pas un succès d'un processus interrompu.
+  console.info(completionLogLine(result, { durationMs, persisted: result.persisted }));
   job.result = result;
   job.status = "complete";
   emit(job, "complete", { percent: PROGRESS_COMPLETE, message: "Analyse terminée", result });
@@ -761,8 +900,12 @@ JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":
 const runStore = {
   async listForUser(userId) {
     if (!pool) return [...jobs.values()].filter(j => j.userId === userId && j.result).map(j => j.result).reverse();
+    // Les colonnes résumées évitent d'ouvrir le jsonb pour afficher une simple liste.
     const { rows } = await pool.query(
-      "SELECT id,request,task_type,status,total_cost,prompt_tokens,completion_tokens,created_at,result->'arbitration' AS arbitration FROM runs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100",
+      `SELECT id, request, task_type, status, total_cost, prompt_tokens, completion_tokens, created_at,
+              cycles, final_score, arbiter_decision, arbiter_confidence,
+              sources_total, sources_accessible, document_chars, duration_ms, error
+       FROM runs WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`,
       [userId]
     );
     return rows;
@@ -779,6 +922,47 @@ const runStore = {
       [userId]
     );
     return rows.map(r => ({ status: r.status, createdAt: r.created_at, totalCost: Number(r.total_cost), calls: r.calls || [] }));
+  },
+  /** Agrégats sur toutes les exécutions de l'utilisateur.
+   *
+   *  Les lignes normalisées sont lues telles quelles puis rassemblées par exécution : l'agrégation
+   *  elle-même reste dans lib/analytics.js, partagée avec le mode sans base, pour que les deux
+   *  chemins ne puissent pas diverger. Aucune colonne volumineuse n'est rapatriée — ni le document,
+   *  ni le contenu des réponses de modèle.
+   */
+  async analyticsFor(userId) {
+    if (!pool) {
+      return buildAnalytics(
+        [...jobs.values()].filter(job => job.userId === userId && job.result).map(job => normalizeRun(job.result))
+      );
+    }
+    const [runs, sources, audits, calls] = await Promise.all([
+      pool.query(
+        `SELECT id, status, task_type, total_cost, duration_ms, document_chars, created_at
+         FROM runs WHERE user_id=$1 AND created_at > now()-interval '365 days'`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT s.run_id, s.url, s.host, s.accessible, s.source_class
+         FROM run_sources s JOIN runs r ON r.id = s.run_id WHERE r.user_id=$1`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT a.run_id, a.cycle, a.score_global, a.scores, a.anomalies, a.severe_anomalies
+         FROM run_audits a JOIN runs r ON r.id = a.run_id WHERE r.user_id=$1 ORDER BY a.cycle`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT c.run_id, c.role, c.model, c.prompt_tokens, c.completion_tokens, c.cost
+         FROM run_calls c JOIN runs r ON r.id = c.run_id WHERE r.user_id=$1`,
+        [userId]
+      )
+    ]);
+    const byRun = new Map(runs.rows.map(row => [row.id, { ...row, sources: [], audits: [], calls: [] }]));
+    for (const [key, result] of [["sources", sources], ["audits", audits], ["calls", calls]]) {
+      for (const row of result.rows) byRun.get(row.run_id)?.[key].push(row);
+    }
+    return buildAnalytics([...byRun.values()]);
   },
   async getOne(id, userId) {
     const inMemory = jobs.get(id);
@@ -818,10 +1002,29 @@ app.post("/api/jobs", jobsLimiter, requireAuth, handleDocumentUploads, async (re
     const job = createJob(id, req.effectiveUser.id);
     jobs.set(id, job);
     res.status(202).json({ id, attachments: attachments.map(({ name, type, size, characters, truncated }) => ({ name, type, size, characters, truncated })) });
-    executeJob(job, req.effectiveUser, body).catch(error => {
+    executeJob(job, req.effectiveUser, body).catch(async error => {
       job.status = "error";
       job.error = error.message;
       console.error("Job failed", { jobId: id, message: error.message, stack: error.stack });
+      // Une analyse interrompue avait déjà consommé des appels de modèle, parfois produit un
+      // document et plusieurs cycles d'audit : tout cela disparaissait sans laisser de trace.
+      if (job.partial) {
+        const { result, request, task, models, startedAt } = job.partial;
+        const durationMs = Date.now() - startedAt;
+        result.status = "error";
+        // Promeut la dernière version rédigée : sans cela, une analyse interrompue après
+        // l'arbitrage n'historisait aucun document alors qu'elle en avait produit un, et
+        // l'utilisateur perdait un texte déjà payé.
+        result.finalDocument = result.finalDocument || result.versions?.at(-1)?.content || null;
+        result.stopReason = result.stopReason || `Analyse interrompue : ${error.message}`;
+        result.durationMs = durationMs;
+        try {
+          result.persisted = await saveRun(req.effectiveUser.id, result, { request, task, models, error: error.message, durationMs });
+        } catch (databaseError) {
+          console.error(`[db] Historisation de l'échec ${id} impossible : ${databaseError.message}`);
+        }
+        console.error(failureLogLine(id, error, { durationMs }));
+      }
       emit(job, "error", { message: error.message });
     });
   } catch (error) {
@@ -847,6 +1050,14 @@ app.get("/api/jobs/:id/events", requireAuth, (req, res) => {
 });
 
 app.get("/api/history", requireAuth, async (req, res) => res.json({ runs: await runStore.listForUser(req.effectiveUser.id) }));
+app.get("/api/analytics", requireAuth, async (req, res) => res.json(await runStore.analyticsFor(req.effectiveUser.id)));
+// Consultation d'une exécution passée. Seul l'export existait : l'historique ne permettait pas de
+// relire un document, ses audits ou ses sources depuis l'interface.
+app.get("/api/runs/:id", requireAuth, async (req, res) => {
+  const run = await runStore.getOne(req.params.id, req.effectiveUser.id);
+  if (!run) return res.status(404).json({ error: "Exécution introuvable." });
+  res.json({ run });
+});
 app.get("/api/dashboard", requireAuth, async (req, res) => res.json(buildDashboard(await runStore.dashboardRows(req.effectiveUser.id))));
 
 

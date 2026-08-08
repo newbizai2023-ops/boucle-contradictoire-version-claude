@@ -21,7 +21,23 @@ const HISTORY_CACHE_KEY = 'boucleHistoryCache';
 function readHistoryCache(){ try { return JSON.parse(localStorage.getItem(HISTORY_CACHE_KEY) || '[]'); } catch { return []; } }
 function writeHistoryCache(runs){ try { localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify((runs || []).slice(0,100))); } catch {} }
 function rememberRun(run){ const cached=readHistoryCache(); const merged=[run,...cached.filter(item=>item.id!==run.id)]; writeHistoryCache(merged); }
-function historyRows(runs){ return runs.length?`<div class="table-wrap"><table><thead><tr><th>Date</th><th>Demande</th><th>Type</th><th>Statut</th><th>Coût</th></tr></thead><tbody>${runs.map(r=>`<tr><td>${new Date(r.created_at||r.createdAt||Date.now()).toLocaleString()}</td><td>${esc((r.request||'').slice(0,90))}</td><td>${esc(r.task_type||r.taskType||'')}</td><td>${esc(r.status)}</td><td>${Number(r.total_cost||r.totalCost||0).toFixed(4)}</td></tr>`).join('')}</tbody></table></div>`:'<p>Aucun historique.</p>'; }
+const dateLabel = value => new Date(value || Date.now()).toLocaleString();
+const scoreLabel = run => run.final_score ?? run.audits?.at(-1)?.score_global ?? '—';
+const sourcesLabel = run => (run.sources_total == null ? (run.sources?.length ?? '—') : `${run.sources_accessible ?? 0}/${run.sources_total}`);
+function historyRows(runs){
+  if(!runs.length) return '<p>Aucune analyse enregistrée pour l’instant.</p>';
+  const lignes = runs.map(r=>`<tr class="history-row" data-run-id="${esc(r.id)}" tabindex="0" role="button" aria-label="Ouvrir l’analyse du ${esc(dateLabel(r.created_at||r.createdAt))}">
+    <td>${esc(dateLabel(r.created_at||r.createdAt))}</td>
+    <td>${esc((r.request||'').slice(0,80))}</td>
+    <td>${esc(r.task_type||r.taskType||'')}</td>
+    <td><span class="status-chip ${esc(String(r.status||'').split('_')[0])}">${esc(r.status)}</span></td>
+    <td>${esc(String(scoreLabel(r)))}</td>
+    <td>${esc(String(r.cycles ?? r.audits?.length ?? '—'))}</td>
+    <td>${esc(String(sourcesLabel(r)))}</td>
+    <td>$${Number(r.total_cost||r.totalCost||0).toFixed(4)}</td>
+  </tr>`).join('');
+  return `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Demande</th><th>Type</th><th>Statut</th><th>Score</th><th>Cycles</th><th>Sources</th><th>Coût</th></tr></thead><tbody>${lignes}</tbody></table></div>`;
+}
 let healthState = {};
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function isChecked(selector) { return Boolean($(selector)?.checked); }
@@ -118,10 +134,10 @@ async function init() {
   $('#app').hidden = false;
   syncFirecrawlAvailability();
   renderKeyStatus($('#apiKey'), 'openrouter', $('#apiKeyHelp'), $('#apiKeyIcon'), Boolean(health.hasOpenRouterKey));
-  const [historyResult, dashboardResult] = await Promise.allSettled([loadHistory(), loadDashboard()]);
+  const [historyResult, dashboardResult] = await Promise.allSettled([loadHistory(), loadAnalytics()]);
   if (currentRunId) { $('#resultsPanel').hidden=false; $('#results').hidden=true; $('#progressPanel').hidden=false; resetFeed(); showRequestSummary(localStorage.getItem('currentRunRequest')); setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
   if (historyResult.status === 'rejected') $('#historyList').innerHTML = `<p class="error">Historique indisponible : ${esc(historyResult.reason.message)}</p>`;
-  if (dashboardResult.status === 'rejected') $('#dashboard').innerHTML = `<p class="error">Tableau de bord indisponible : ${esc(dashboardResult.reason.message)}</p>`;
+  if (dashboardResult.status === 'rejected') $('#analyticsOverview').innerHTML = `<p class="error">Données historisées indisponibles : ${esc(dashboardResult.reason.message)}</p>`;
   updateTabsOverflow();
 }
 
@@ -267,7 +283,7 @@ function watchJob(id) {
   es.addEventListener('source', onceParsed(d => appendFeedItem('source-ping', d.message)));
   // L'événement "audit" (scores bruts) est absorbé par le constat "insight" équivalent, plus complet.
   es.addEventListener('insight', onceParsed(d => resolveFeedStep(insightStepKey(d), d.category||'analyse', d.message||'', d.details)));
-  es.addEventListener('complete', onceParsed(d => { es.close(); appendFeedItem('complete','Analyse terminée'); renderResult(d.result); setProgress(100,'Terminé'); resetButton(); loadHistory().catch(showError); loadDashboard().catch(showError); }));
+  es.addEventListener('complete', onceParsed(d => { es.close(); appendFeedItem('complete','Analyse terminée'); renderResult(d.result); setProgress(100,'Terminé'); resetButton(); loadHistory().catch(showError); loadAnalytics().catch(showError); }));
   // Sert à la fois pour les erreurs réseau natives de l'EventSource (sans e.data, avant une
   // reconnexion automatique) et pour l'événement "error" émis par le serveur quand le job échoue.
   es.addEventListener('error', e=>{
@@ -305,10 +321,120 @@ function renderSources(sources){
   return summary+`<div class="source-grid">${cards}</div>`;
 }
 function renderUsage(calls){ return `<div class="table-wrap"><table><thead><tr><th>Rôle</th><th>Modèle</th><th>Entrée</th><th>Sortie</th><th>Coût</th></tr></thead><tbody>${calls.map(c=>`<tr><td>${esc(c.role)}</td><td>${esc(c.model)}</td><td>${c.usage?.prompt_tokens||0}</td><td>${c.usage?.completion_tokens||0}</td><td>$${Number(c.usage?.cost||0).toFixed(4)}</td></tr>`).join('')}</tbody></table></div>`; }
+function renderRunDetail(run){
+  const last = run.audits?.at(-1);
+  const exports = ['md','pdf','docx','xlsx'].map(f=>`<a href="/api/runs/${encodeURIComponent(run.id)}/export/${f}">${f.toUpperCase()}</a>`).join(' ');
+  return `<div class="section-title"><div><p class="eyebrow">ANALYSE ENREGISTRÉE</p><h3>${esc(dateLabel(run.createdAt))} — ${esc(run.status)}</h3></div><button type="button" id="closeRunDetail" class="secondary">Fermer</button></div>
+    <div class="metrics">
+      <article><span>Score final</span><strong>${esc(String(last?.score_global ?? '—'))}</strong></article>
+      <article><span>Cycles</span><strong>${esc(String(run.audits?.length ?? 0))}</strong></article>
+      <article><span>Sources</span><strong>${esc(String((run.sources||[]).filter(x=>x.accessible===true).length))}/${esc(String((run.sources||[]).length))}</strong></article>
+      <article><span>Coût</span><strong>$${Number(run.totalCost||0).toFixed(4)}</strong></article>
+    </div>
+    <p class="request-summary">Demande : ${esc(summarizeRequest(run.request, 400))}</p>
+    <div class="toolbar"><span>Exports :</span> ${exports}</div>
+    <details open><summary>Document final</summary><pre>${esc(run.finalDocument||'')}</pre></details>
+    <details><summary>Arbitrage</summary><pre>${esc(JSON.stringify(run.arbitration,null,2))}</pre></details>
+    <details><summary>Scores par cycle</summary>${renderScores(run.audits||[])}</details>
+    <details><summary>Sources contrôlées</summary>${renderSources(run.sources||[])}</details>
+    <details><summary>Consommation</summary>${renderUsage(run.calls||[])}</details>`;
+}
+async function showRunDetail(id){
+  const panel = $('#runDetail');
+  panel.hidden = false;
+  panel.innerHTML = '<p>Chargement…</p>';
+  try {
+    const { run } = await json(`/api/runs/${encodeURIComponent(id)}`);
+    panel.innerHTML = renderRunDetail(run);
+    panel.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  } catch(error){
+    panel.innerHTML = `<p class="error">Analyse indisponible : ${esc(error.message)}</p>`;
+  }
+}
+$('#historyList').addEventListener('click', event => {
+  const row = event.target.closest('.history-row');
+  if (row) showRunDetail(row.dataset.runId);
+});
+$('#historyList').addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const row = event.target.closest('.history-row');
+  if (row) { event.preventDefault(); showRunDetail(row.dataset.runId); }
+});
+$('#runDetail').addEventListener('click', event => {
+  if (event.target.id === 'closeRunDetail') { $('#runDetail').hidden = true; $('#runDetail').innerHTML = ''; }
+});
+
 async function loadHistory(){ const cached=readHistoryCache(); if(cached.length) $('#historyList').innerHTML=historyRows(cached); const {runs}=await json('/api/history'); const merged=[...(runs||[]),...cached.filter(c=>!(runs||[]).some(r=>r.id===c.id))].sort((a,b)=>new Date(b.created_at||b.createdAt||0)-new Date(a.created_at||a.createdAt||0)); writeHistoryCache(merged); $('#historyList').innerHTML=historyRows(merged); }
-async function loadDashboard(){ const d=await json('/api/dashboard'); $('#dashboard').innerHTML=`<div class="metrics"><article><span>Exécutions</span><strong>${d.totals.runs}</strong></article><article><span>Validées</span><strong>${d.totals.validated}</strong></article><article><span>Coût total</span><strong>$${Number(d.totals.cost).toFixed(4)}</strong></article><article><span>Tokens</span><strong>${(d.totals.promptTokens+d.totals.completionTokens).toLocaleString()}</strong></article></div>${renderUsage(d.byModel.map(m=>({role:`${m.calls} appels`,model:m.model,usage:{prompt_tokens:m.promptTokens,completion_tokens:m.completionTokens,cost:m.cost}})))}`; }
-$('#refreshHistory').onclick=()=>Promise.allSettled([loadHistory(),loadDashboard()]);
-document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ loadHistory().catch(()=>{}); loadDashboard().catch(()=>{}); if(currentRunId && (!currentEventSource || currentEventSource.readyState===EventSource.CLOSED)) watchJob(currentRunId); } });
+// ---------------------------------------------------------------------------
+// Données historisées : agrégats sur l'ensemble des analyses enregistrées.
+// ---------------------------------------------------------------------------
+const nombre = value => Number(value ?? 0).toLocaleString('fr-FR');
+const pourcent = (part, total) => (total ? `${Math.round((part / total) * 100)} %` : '—');
+function table(colonnes, lignes, vide){
+  if(!lignes.length) return `<p>${esc(vide)}</p>`;
+  return `<div class="table-wrap"><table><thead><tr>${colonnes.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${
+    lignes.map(l=>`<tr>${l.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+function renderAnalyticsOverview(a){
+  const t = a.totals;
+  return `<div class="metrics">
+      <article><span>Analyses</span><strong>${nombre(t.runs)}</strong></article>
+      <article><span>Validées</span><strong>${nombre(t.validated)}</strong></article>
+      <article><span>Rejetées</span><strong>${nombre(t.rejected)}</strong></article>
+      <article><span>En échec</span><strong>${nombre(t.errors)}</strong></article>
+      <article><span>Score moyen</span><strong>${esc(String(t.avgScore ?? '—'))}</strong></article>
+      <article><span>Cycles moyens</span><strong>${esc(String(t.avgCycles ?? '—'))}</strong></article>
+      <article><span>Durée moyenne</span><strong>${t.avgDurationSec == null ? '—' : `${esc(String(t.avgDurationSec))} s`}</strong></article>
+      <article><span>Coût total</span><strong>$${Number(t.cost||0).toFixed(4)}</strong></article>
+    </div>
+    <h3>Par type de tâche</h3>
+    ${table(['Type','Analyses','Score moyen','Coût'], (a.byTaskType||[]).map(r=>[esc(r.taskType), nombre(r.runs), esc(String(r.avgScore ?? '—')), `$${Number(r.cost||0).toFixed(4)}`]), 'Aucune analyse enregistrée.')}`;
+}
+function renderAnalyticsSources(a){
+  const s = a.sources;
+  return `<div class="metrics">
+      <article><span>Sources citées</span><strong>${nombre(s.total)}</strong></article>
+      <article><span>Accessibles</span><strong>${nombre(s.accessible)} <small>(${pourcent(s.accessible, s.total)})</small></strong></article>
+      <article><span>Inaccessibles</span><strong>${nombre(s.inaccessible)}</strong></article>
+      <article><span>Non contrôlées</span><strong>${nombre(s.unchecked)}</strong></article>
+    </div>
+    <h3>Par catégorie de source</h3>
+    ${table(['Catégorie','Occurrences','Accessibles','Taux'], (s.byClass||[]).map(r=>[esc(r.sourceClass), nombre(r.count), nombre(r.accessible), pourcent(r.accessible, r.count)]), 'Aucune source enregistrée.')}
+    <h3>Domaines les plus cités</h3>
+    ${table(['Domaine','Occurrences','Analyses','Accessibles','Taux'], (s.topHosts||[]).map(r=>[esc(r.host), nombre(r.count), nombre(r.runs), nombre(r.accessible), pourcent(r.accessible, r.count)]), 'Aucune source enregistrée.')}`;
+}
+function renderAnalyticsAudits(a){
+  return `<h3>Progression par cycle</h3>
+    ${table(['Cycle','Audits','Score moyen','Anomalies (moy.)','dont sévères'], (a.audits.byCycle||[]).map(r=>[esc(String(r.cycle)), nombre(r.audits), esc(String(r.avgScore ?? '—')), esc(String(r.avgAnomalies ?? '—')), esc(String(r.avgSevere ?? '—'))]), 'Aucun audit enregistré.')}
+    <h3>Critères les plus faibles</h3>
+    ${table(['Critère','Score moyen'], (a.audits.byCriterion||[]).map(r=>[esc(r.criterion.replaceAll('_',' ')), esc(String(r.avgScore ?? '—'))]), 'Aucun audit enregistré.')}`;
+}
+function renderAnalyticsUsage(a){
+  const t = a.totals;
+  return `<div class="metrics">
+      <article><span>Tokens entrée</span><strong>${nombre(t.promptTokens)}</strong></article>
+      <article><span>Tokens sortie</span><strong>${nombre(t.completionTokens)}</strong></article>
+      <article><span>Caractères produits</span><strong>${nombre(t.documentChars)}</strong></article>
+      <article><span>Coût total</span><strong>$${Number(t.cost||0).toFixed(4)}</strong></article>
+    </div>
+    <h3>Par modèle</h3>
+    ${table(['Modèle','Appels','Tokens entrée','Tokens sortie','Coût'], (a.byModel||[]).map(r=>[esc(r.model), nombre(r.calls), nombre(r.promptTokens), nombre(r.completionTokens), `$${Number(r.cost||0).toFixed(4)}`]), 'Aucun appel enregistré.')}
+    <h3>Par rôle</h3>
+    ${table(['Rôle','Appels','Coût'], (a.byRole||[]).map(r=>[esc(r.role), nombre(r.calls), `$${Number(r.cost||0).toFixed(4)}`]), 'Aucun appel enregistré.')}`;
+}
+async function loadAnalytics(){
+  const a = await json('/api/analytics');
+  $('#analyticsOverview').innerHTML = renderAnalyticsOverview(a);
+  $('#analyticsSources').innerHTML = renderAnalyticsSources(a);
+  $('#analyticsAudits').innerHTML = renderAnalyticsAudits(a);
+  $('#dashboard').innerHTML = renderAnalyticsUsage(a);
+}
+document.querySelectorAll('.atab').forEach(tab=>tab.onclick=()=>{
+  document.querySelectorAll('.atab').forEach(x=>x.classList.toggle('active', x===tab));
+  document.querySelectorAll('.atab-panel').forEach(x=>x.classList.toggle('active', x.id===tab.dataset.atab));
+});
+$('#refreshHistory').onclick=()=>Promise.allSettled([loadHistory(),loadAnalytics()]);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ loadHistory().catch(()=>{}); loadAnalytics().catch(()=>{}); if(currentRunId && (!currentEventSource || currentEventSource.readyState===EventSource.CLOSED)) watchJob(currentRunId); } });
 window.addEventListener('online',()=>{ if(currentRunId && (!currentEventSource || currentEventSource.readyState===EventSource.CLOSED)) watchJob(currentRunId); });
 $('#copy').onclick=()=>navigator.clipboard.writeText($('#finalDocument').textContent).catch(error=>showError(error));
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{ document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===tab)); document.querySelectorAll('.tab-panel').forEach(x=>x.classList.toggle('active',x.id===tab.dataset.tab)); });
