@@ -15,6 +15,26 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.4.2] - 2026-08-08
+
+### Modifié
+
+- **Intégration de la 1.1.8 dans la lignée 1.2.0 → 1.4.1.** Ces deux séries ont été développées en
+  parallèle à partir de la 1.1.7 : la 1.1.8 corrigeait l'échec systématique de Firecrawl (HTTP 403,
+  `zeroDataRetention` envoyé sans que l'option soit activée sur le compte), tandis que la lignée
+  1.2.x–1.4.x traitait la sélection des modèles, la persistance, le coût, la condition d'arrêt et
+  la suite de tests. **Les versions 1.2.0 à 1.4.1 ne contenaient donc pas le correctif Firecrawl**
+  — il n'est effectif qu'à partir de cette version.
+
+  Les deux historiques sont conservés à leur place respective dans ce fichier, chacun selon son
+  numéro. La fusion n'a demandé aucun arbitrage de code : les modifications portaient sur des
+  parties disjointes de `server.js` (constantes et corps de requête Firecrawl d'un côté, boucle
+  d'analyse et persistance de l'autre). Seuls le numéro de version, l'en-tête du README et l'ordre
+  des entrées de ce changelog ont dû être tranchés.
+
+  Le README ne réaffiche plus de numéro de version en dur : la 1.1.8 l'avait remis à jour à la
+  main, dans la phrase même expliquant que `package.json` est l'unique source de vérité.
+
 ## [1.4.1] - 2026-08-08
 
 ### Corrigé
@@ -184,6 +204,18 @@ désynchronisation entre le code et le numéro affiché.
   versions intermédiaires et le contenu intégral de chaque réponse de modèle — pour n'en exploiter
   que la consommation par appel. La requête projette désormais `result->'calls'`, laissant le tri à
   PostgreSQL.
+## [1.1.8] - 2026-08-08
+
+### Corrigé
+
+- **Toutes les vérifications Firecrawl échouaient avec HTTP 403** : `scrapeFirecrawl()` envoyait
+  systématiquement `zeroDataRetention: true`, une fonctionnalité à activer explicitement sur le
+  compte Firecrawl (message renvoyé : *"Zero Data Retention (ZDR) is not enabled for your team"*).
+  Chaque source ressortait donc « inaccessible » alors que la clé API était valide et le reste du
+  pipeline fonctionnel — confirmé une fois le vrai correctif de la case Firecrawl (1.1.7) en place
+  et le premier appel réel observé. Option désormais contrôlée par la variable d'environnement
+  `FIRECRAWL_ZERO_DATA_RETENTION` (`false` par défaut), à activer uniquement si le compte Firecrawl
+  dispose réellement de cette fonctionnalité.
 
 ## [1.1.7] - 2026-08-08
 
