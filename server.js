@@ -925,5 +925,13 @@ app.get("/api/runs/:id/export/:format", requireAuth, async (req, res) => {
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/{*path}", (_req, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
-await initDb();
+// Une erreur ici (URL invalide, base injoignable, etc.) ne doit pas empêcher le serveur de
+// démarrer : l'application est conçue pour fonctionner en mode dégradé sans base (historique et
+// dashboard alors limités à la mémoire du process). Sans ce garde-fou, la moindre erreur de
+// configuration de DATABASE_URL faisait planter tout le processus au démarrage.
+try {
+  await initDb();
+} catch (error) {
+  console.error(`[db] Initialisation de la base impossible, démarrage en mode dégradé (sans historique persistant) : ${error.message}`);
+}
 app.listen(PORT, "0.0.0.0", () => console.log(`Boucle Contradictoire v${RELEASE} disponible sur ${PORT}`));
