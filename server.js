@@ -335,6 +335,22 @@ function selectModels(task, supplied = {}) {
   };
 }
 
+// Libellés lisibles pour les identifiants de modèle OpenRouter, alignés sur les options du
+// sélecteur (public/index.html). Sert à ce que les messages affichés côté client (fil de suivi)
+// citent le modèle réellement utilisé, y compris en sélection manuelle, plutôt qu'un texte figé.
+const MODEL_LABELS = {
+  "~anthropic/claude-opus-latest": "Claude Opus",
+  "~anthropic/claude-sonnet-latest": "Claude Sonnet",
+  "openai/gpt-5.6-sol": "GPT-5.6 Sol",
+  "openai/gpt-5.6-terra": "GPT-5.6 Terra",
+  "~openai/gpt-latest": "GPT",
+  "~moonshotai/kimi-latest": "Kimi",
+  "~x-ai/grok-latest": "Grok"
+};
+function modelLabel(id) {
+  return MODEL_LABELS[id] || String(id || "").replace(/^~/, "");
+}
+
 // ---------------------------------------------------------------------------
 // Utilitaires génériques
 // ---------------------------------------------------------------------------
@@ -466,6 +482,7 @@ function sourceClass(url) {
 async function scrapeFirecrawl(url, apiKey) {
   if (!apiKey) return { url, accessible: false, reason: "FIRECRAWL_API_KEY absente", sourceClass: sourceClass(url) };
   try {
+    console.info(`[firecrawl] extraction url=${url}`);
     const response = await fetch(FIRECRAWL_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -473,8 +490,13 @@ async function scrapeFirecrawl(url, apiKey) {
       signal: AbortSignal.timeout(FIRECRAWL_TIMEOUT_MS)
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.success === false) return { url, accessible: false, reason: payload.error || `HTTP ${response.status}`, sourceClass: sourceClass(url) };
+    if (!response.ok || payload.success === false) {
+      const reason = payload.error || `HTTP ${response.status}`;
+      console.warn(`[firecrawl] échec url=${url} statut=${response.status} raison=${reason}`);
+      return { url, accessible: false, reason, sourceClass: sourceClass(url) };
+    }
     const data = payload.data || payload;
+    console.info(`[firecrawl] succès url=${url} statut=${data.metadata?.statusCode || 200} caractères=${String(data.markdown || "").length}`);
     return {
       url,
       accessible: true,
@@ -485,6 +507,7 @@ async function scrapeFirecrawl(url, apiKey) {
       sourceClass: sourceClass(url)
     };
   } catch (error) {
+    console.error(`[firecrawl] erreur url=${url}: ${error.message}`);
     return { url, accessible: false, reason: error.message, sourceClass: sourceClass(url) };
   }
 }
@@ -663,7 +686,7 @@ async function executeJob(job, user, body) {
   };
 
   emit(job, "models", { message: "Modèles sélectionnés", task, models });
-  emit(job, "insight", { category: "strategy", message: `Tâche classée « ${task} ». Claude rédige, GPT audite et Grok arbitre.`, details: { models } });
+  emit(job, "insight", { category: "strategy", message: `Tâche classée « ${task} ». ${modelLabel(models.writer)} rédige, ${modelLabel(models.auditor)} audite, ${modelLabel(models.arbiter)} arbitre.`, details: { models } });
   if (attachments.length) emit(job, "insight", { category: "documents", message: `${attachments.length} document(s) extrait(s) et ajouté(s) au contexte.`, details: { files: result.attachments } });
 
   emit(job, "progress", { step: "draft", cycle: 0, percent: 8, message: "Rédaction initiale avec recherche web" });
