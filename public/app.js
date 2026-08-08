@@ -220,18 +220,42 @@ function watchJob(id) {
   if (currentEventSource) currentEventSource.close();
   const es = new EventSource(`/api/jobs/${id}/events`);
   currentEventSource = es;
-  es.addEventListener('progress', e => {
-    const d = JSON.parse(e.data);
+  // Le navigateur reconnecte silencieusement l'EventSource après une coupure (veille mobile,
+  // changement de réseau…), et le serveur rejoue alors tout l'historique du job depuis le début.
+  // Sans ce garde-fou, chaque reconnexion dupliquait dans le fil de suivi les entrées déjà
+  // affichées (numéro de séquence croissant par job, voir server.js `emit`).
+  let lastSeq = -1;
+  function onceParsed(handler) {
+    return e => {
+      const d = JSON.parse(e.data);
+      if (d.seq != null) {
+        if (d.seq <= lastSeq) return;
+        lastSeq = d.seq;
+      }
+      handler(d);
+    };
+  }
+  es.addEventListener('progress', onceParsed(d => {
     if (d.percent != null) setProgress(d.percent, d.message);
     const key = progressStepKey(d);
     const kind = d.step || 'progress';
     if (key) startFeedStep(key, kind, d.message); else appendFeedItem(kind, d.message);
-  });
-  es.addEventListener('source', e => { const d=JSON.parse(e.data); appendFeedItem('source-ping', d.message); });
+  }));
+  es.addEventListener('source', onceParsed(d => appendFeedItem('source-ping', d.message)));
   // L'événement "audit" (scores bruts) est absorbé par le constat "insight" équivalent, plus complet.
-  es.addEventListener('insight', e => { const d=JSON.parse(e.data); resolveFeedStep(insightStepKey(d), d.category||'analyse', d.message||'', d.details); });
-  es.addEventListener('complete', e=>{ es.close(); const d=JSON.parse(e.data); appendFeedItem('complete','Analyse terminée'); renderResult(d.result); setProgress(100,'Terminé'); resetButton(); loadHistory().catch(showError); loadDashboard().catch(showError); });
-  es.addEventListener('error', e=>{ if(e.data){ const d=JSON.parse(e.data); showError(new Error(d.message)); appendFeedItem('error', d.message); } es.close(); resetButton(); });
+  es.addEventListener('insight', onceParsed(d => resolveFeedStep(insightStepKey(d), d.category||'analyse', d.message||'', d.details)));
+  es.addEventListener('complete', onceParsed(d => { es.close(); appendFeedItem('complete','Analyse terminée'); renderResult(d.result); setProgress(100,'Terminé'); resetButton(); loadHistory().catch(showError); loadDashboard().catch(showError); }));
+  // Sert à la fois pour les erreurs réseau natives de l'EventSource (sans e.data, avant une
+  // reconnexion automatique) et pour l'événement "error" émis par le serveur quand le job échoue.
+  es.addEventListener('error', e=>{
+    if (e.data) {
+      const d = JSON.parse(e.data);
+      if (d.seq != null) { if (d.seq <= lastSeq) return; lastSeq = d.seq; }
+      showError(new Error(d.message));
+      appendFeedItem('error', d.message);
+    }
+    es.close(); resetButton();
+  });
 }
 function setProgress(p,t){ const value=Math.min(100,Math.max(0,Number(p)||0)); $('#progressBar').style.width=`${value}%`; $('#progressText').textContent=t||''; $('#progressPercent').textContent=`${Math.round(value)} %`; $('.progress').setAttribute('aria-valuenow',String(value)); }
 function scrollFeedToLatest(feed){

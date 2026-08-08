@@ -638,10 +638,16 @@ async function extractUploadedDocuments(files = []) {
 const jobs = new Map();
 
 function createJob(id, userId) {
-  return { id, userId, events: [], clients: new Set(), status: "queued", result: null, error: null, createdAt: Date.now() };
+  return { id, userId, events: [], clients: new Set(), status: "queued", result: null, error: null, createdAt: Date.now(), seq: 0 };
 }
+// `seq` est un numéro croissant par job : le client s'en sert pour ignorer les événements déjà
+// traités quand l'EventSource se reconnecte silencieusement (veille mobile, coupure réseau, etc.)
+// et que le serveur rejoue tout l'historique — sans quoi chaque reconnexion faisait apparaître en
+// double les entrées du fil de suivi qui n'ont pas de clé de dédoublonnage stable côté client
+// (stratégie, documents joints) voire celles déjà résolues une première fois (rédaction, sources).
 function emit(job, type, payload = {}) {
-  const event = { type, at: new Date().toISOString(), ...payload };
+  job.seq += 1;
+  const event = { type, seq: job.seq, at: new Date().toISOString(), ...payload };
   job.events.push(event);
   for (const res of job.clients) res.write(`event: ${type}\ndata: ${JSON.stringify(event)}\n\n`);
 }

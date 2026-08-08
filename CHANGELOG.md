@@ -15,6 +15,16 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.4] - 2026-08-08
+
+### Corrigé
+
+- Le fil de suivi affichait des entrées en double (stratégie, rédaction…) après une reconnexion
+  silencieuse de l'EventSource (veille mobile, changement de réseau) : le serveur rejoue alors tout
+  l'historique du job, que le client réaffichait sans détecter qu'il l'avait déjà traité. Chaque
+  événement porte désormais un numéro de séquence croissant par job (`emit()`), et le client ignore
+  tout événement déjà vu pendant la connexion en cours.
+
 ## [1.1.3] - 2026-08-08
 
 ### Corrigé
