@@ -15,6 +15,19 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.8] - 2026-08-08
+
+### Corrigé
+
+- **Toutes les vérifications Firecrawl échouaient avec HTTP 403** : `scrapeFirecrawl()` envoyait
+  systématiquement `zeroDataRetention: true`, une fonctionnalité à activer explicitement sur le
+  compte Firecrawl (message renvoyé : *"Zero Data Retention (ZDR) is not enabled for your team"*).
+  Chaque source ressortait donc « inaccessible » alors que la clé API était valide et le reste du
+  pipeline fonctionnel — confirmé une fois le vrai correctif de la case Firecrawl (1.1.7) en place
+  et le premier appel réel observé. Option désormais contrôlée par la variable d'environnement
+  `FIRECRAWL_ZERO_DATA_RETENTION` (`false` par défaut), à activer uniquement si le compte Firecrawl
+  dispose réellement de cette fonctionnalité.
+
 ## [1.1.7] - 2026-08-08
 
 ### Corrigé

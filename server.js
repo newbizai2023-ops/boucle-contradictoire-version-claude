@@ -57,6 +57,12 @@ const OPENROUTER_MAX_TOKENS = 12_000;
 const FIRECRAWL_URL = "https://api.firecrawl.dev/v2/scrape";
 const FIRECRAWL_TIMEOUT_MS = 55_000;
 const FIRECRAWL_PAGE_TIMEOUT_MS = 45_000;
+// La rétention nulle (ZDR) est une fonctionnalité Firecrawl à activer explicitement sur le compte ;
+// l'envoyer alors qu'elle n'est pas activée fait échouer TOUTES les requêtes avec HTTP 403
+// ("Zero Data Retention (ZDR) is not enabled for your team"), constaté en production : chaque
+// source vérifiée ressortait "inaccessible" alors que la clé API était valide. Désactivée par
+// défaut ; à activer uniquement si le compte Firecrawl dispose réellement de cette fonctionnalité.
+const FIRECRAWL_ZERO_DATA_RETENTION = process.env.FIRECRAWL_ZERO_DATA_RETENTION === "true";
 const FIRECRAWL_EXCERPT_CHARS = 12_000;
 const SOURCE_VERIFICATION_CONCURRENCY = 4;
 const MAX_SOURCES_PER_RUN = 10;
@@ -516,7 +522,7 @@ async function scrapeFirecrawl(url, apiKey) {
     const response = await fetch(FIRECRAWL_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, removeBase64Images: true, blockAds: true, timeout: FIRECRAWL_PAGE_TIMEOUT_MS, zeroDataRetention: true }),
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true, removeBase64Images: true, blockAds: true, timeout: FIRECRAWL_PAGE_TIMEOUT_MS, zeroDataRetention: FIRECRAWL_ZERO_DATA_RETENTION }),
       signal: AbortSignal.timeout(FIRECRAWL_TIMEOUT_MS)
     });
     const payload = await response.json().catch(() => ({}));
