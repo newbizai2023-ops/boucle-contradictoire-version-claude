@@ -15,6 +15,102 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.8.0] - 2026-08-08
+
+Robustesse des preuves. Après une analyse externe du dépôt en 1.7.0, six corrections retenues sur
+les seize proposées — les autres relèvent des versions suivantes ou ont été écartées, voir la fin
+d'entrée. Le fil conducteur : **passer de « le modèle affirme que la source prouve X » à « le
+système peut montrer pourquoi cette source soutient X »**.
+
+### Ajouté
+
+- **Validation opposable des preuves** (`lib/evidence.js`). Une source qui répond n'établissait
+  jusqu'ici rien de plus que son existence, et une contradiction devenait « confirmée » parce que
+  son URL répondait — accessible n'a jamais valu probant.
+
+  Le contrôle qui tranche est déterministe et ne coûte aucun appel : le modèle cite un extrait, et
+  cet extrait doit se retrouver dans la page réellement extraite. Correspondance littérale, ou
+  recouvrement lexical d'au moins 60 % sur les mots significatifs pour accepter une reformulation
+  fidèle sans laisser passer une citation fabriquée. Une citation de moins de trois mots
+  significatifs n'est jamais accordée : « le support » figure dans toute page traitant du sujet.
+
+  Chaque échec porte sa raison, distincte : `SOURCE_ABSENTE`, `SOURCE_INJOIGNABLE`,
+  `CITATION_ABSENTE`, `CITATION_INTROUVABLE`. Seule une contradiction grave **et** confirmée peut
+  désormais dégrader le statut final.
+
+- **Rétrogradation déterministe des affirmations.** Le statut `VERIFIE` est décidé par l'auditeur,
+  un modèle. Trois règles le lui retirent sans aucun jugement : aucune source rattachée, aucune
+  source connue du dossier contrôlé, aucune source joignable. Le code peut retirer un statut que
+  rien n'étaye ; il ne s'autorise jamais à en accorder un.
+
+- **Contrôle du second avis dans l'interface** : automatique (juridique et financier), toujours,
+  jamais. Le serveur savait distinguer les trois cas depuis la 1.7.0, l'interface ne les proposait
+  pas.
+
+- **Les exports emportent le dossier de preuves** (`lib/report.js`). Markdown complet — document,
+  raison d'arrêt, cadrage, affirmations, sources et leur état, désaccords, réfutation, arbitrage.
+  Quatre onglets Excel supplémentaires (Affirmations, Sources, Divergences, Réfutation). Annexe
+  compacte en PDF et Word. Un document exporté qui perdait ses preuves redevenait un texte parmi
+  d'autres.
+
+### Corrigé
+
+- **Le falsificateur n'est plus l'arbitre.** La recherche adversariale était confiée au modèle
+  d'arbitrage : il cherchait les contradictions, puis jugeait ses propres trouvailles — sur
+  l'élément de preuve le plus lourd du dispositif, celui qui peut dégrader un `APPROUVE`. Cinquième
+  rôle `falsifier` (Kimi par défaut), résolu vers un modèle distinct du rédacteur et de l'arbitre,
+  y compris en sélection manuelle.
+
+- **`detectTask()` cherchait ses mots-clés en sous-chaîne.** « trois » contient « roi » (donc
+  financier), « rapide » contient « api » (donc technique). Anodin tant que le domaine ne pilotait
+  que le choix des modèles ; coûteux depuis la 1.7.0, où `financial` et `legal` déclenchent
+  automatiquement un second avis — soit deux appels de modèle de plus sur une classification
+  absurde. Les mots-clés sont désormais cherchés sur des mots entiers, avec une frontière qui ne
+  coupe pas sur les accents (`\b` couperait « coût » au « û »), et une priorité explicite entre
+  domaines remplace l'ordre des conditions dans le fichier : une « architecture financière » est
+  traitée comme financière.
+
+- **Un booléen optionnel envoyé en multipart était toujours lu comme faux.** `body.diversify === true`
+  ne peut jamais être vrai pour la chaîne `"true"` : le choix « toujours » de l'utilisateur se
+  serait traduit par « jamais ». `parseOptionalBoolean()` distingue les trois états, `undefined`
+  restant « laisse le serveur décider ».
+
+- **Les extraits de pages Web n'étaient pas marqués comme non fiables.** Les documents joints
+  l'étaient depuis la 1.3.0 ; les contenus rapportés par Firecrawl, injectés dans les prompts
+  d'audit et de réfutation, ne l'étaient pas — même vecteur d'injection indirecte, sans la garde.
+  Consigne partagée `EXTERNAL_CONTENT_WARNING`, appliquée à tous les rôles qui manipulent du
+  contenu externe.
+
+- **La stagnation ignorait les affirmations.** Régression introduite en 1.7.0 : depuis que les
+  affirmations déterminantes non établies bloquent la validation, un cycle qui en résout trois sans
+  faire bouger le score faisait le travail utile — et l'arrêt sur stagnation le jetait. La détection
+  suit désormais trois dimensions : score, anomalies sévères, affirmations déterminantes non
+  établies.
+
+### Écarté ou différé
+
+- **Recherche ciblée sur les désaccords** : les questions issues du second avis alimentent la
+  correction et l'arbitrage, mais aucune étape ne garantit qu'elles reçoivent une réponse. C'est la
+  suite logique, elle coûte un appel de plus et une notion de statut de divergence — hors périmètre
+  de cette version.
+- **Notion de risque et bascule vers un pipeline pré-recherche** : changements d'architecture, pas
+  de corrections.
+- **Table `run_claim_sources` et entailment sémantique par modèle** : la relation claim → source est
+  aujourd'hui portée par `run_claims.sources` et validée de façon déterministe. Une table dédiée et
+  un appel d'entailment n'apporteraient de valeur qu'une fois la recherche ciblée en place.
+
+### Vérifié
+
+- Suite `npm test` portée à 171 tests (149 auparavant), dont deux nouveaux fichiers pour la
+  validation des preuves et les exports. Un test a d'ailleurs révélé un défaut réel de la première
+  implémentation : le raccourci de correspondance littérale contournait le seuil de longueur, si
+  bien que deux mots suffisaient à valider une citation.
+- Simulation de bout en bout du pipeline complet — 20 vérifications, dont l'écart entre une
+  contradiction dont la citation existe et une citation fabriquée (`CITATION_INTROUVABLE`), et la
+  distinction du falsificateur et de l'arbitre.
+- Rendu navigateur en clair/sombre et desktop/mobile : contrôle du second avis, état confirmé ou
+  écarté de chaque contradiction, motif de rétrogradation d'une affirmation. Aucune erreur console.
+
 ## [1.7.0] - 2026-08-08
 
 Les quatre évolutions restantes du chemin de convergence ([`docs/ANALYSE_METHODOLOGIE.md`](docs/ANALYSE_METHODOLOGIE.md)).

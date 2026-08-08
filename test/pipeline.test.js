@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { normalizeExploration, exploreBrief, exploreSummary } from "../lib/explore.js";
 import { shouldFalsify, normalizeFalsification, falsificationUrls, confirmedContradictions } from "../lib/falsify.js";
+import { validateContradiction } from "../lib/evidence.js";
 import { shouldDiversify, normalizeDivergence, divergenceBrief } from "../lib/diverge.js";
 
 // ---------------------------------------------------------------------------
@@ -131,23 +132,29 @@ test("un verdict inintelligible retombe sur CONFIRME plutôt que d'inventer une 
   assert.equal(normalizeFalsification(null), null);
 });
 
-test("seules comptent les contradictions graves dont la source répond vraiment", () => {
-  const falsification = normalizeFalsification({
-    verdict: "CONTREDIT",
-    contradictions: [
-      { affirmation: "A", source: "https://joignable.fr/x", gravite: "critique" },
-      { affirmation: "B", source: "https://morte.fr/y", gravite: "critique" },
-      { affirmation: "C", source: "https://joignable.fr/x", gravite: "faible" }
-    ]
-  });
+test("seules comptent les contradictions graves dont la citation a été retrouvée", () => {
+  // Accessible ne vaut pas probant : la page peut répondre en parlant d'autre chose. Ce qui compte
+  // est que l'extrait cité par la réfutation se retrouve dans la page réellement extraite — sinon
+  // il suffisait d'une URL vivante pour qu'une objection inventée dégrade le statut d'une analyse.
   const sources = [
-    { url: "https://joignable.fr/x", accessible: true },
+    { url: "https://joignable.fr/x", accessible: true, markdown: "Le support est prolongé jusqu'en 2028 pour tous les clients." },
     { url: "https://morte.fr/y", accessible: false }
   ];
-  const confirmees = confirmedContradictions(falsification, sources);
-  assert.deepEqual(confirmees.map(c => c.affirmation), ["A"], "ni la source morte, ni la contradiction mineure");
-  assert.deepEqual(confirmedContradictions(null, sources), []);
-  assert.deepEqual(confirmedContradictions(falsification, []), [], "sans contrôle de source, rien n'est confirmé");
+  const contradictions = [
+    { affirmation: "A", source: "https://joignable.fr/x", extrait: "Le support est prolongé jusqu'en 2028", gravite: "critique" },
+    { affirmation: "B", source: "https://morte.fr/y", extrait: "peu importe", gravite: "critique" },
+    { affirmation: "C", source: "https://joignable.fr/x", extrait: "Le support est prolongé jusqu'en 2028", gravite: "faible" },
+    { affirmation: "D", source: "https://joignable.fr/x", extrait: "La garantie constructeur couvre cinq années pleines", gravite: "critique" }
+  ].map(contradiction => validateContradiction(contradiction, sources));
+
+  const falsification = { contradictions };
+  assert.deepEqual(
+    confirmedContradictions(falsification).map(c => c.affirmation),
+    ["A"],
+    "ni la source morte, ni la contradiction mineure, ni la citation absente de la page"
+  );
+  assert.equal(contradictions[3].preuve.relation, "CITATION_INTROUVABLE");
+  assert.deepEqual(confirmedContradictions(null), []);
 });
 
 // ---------------------------------------------------------------------------

@@ -237,10 +237,22 @@ test("stagnationBetween ne signale rien tant qu'une dimension progresse", () => 
 
 test("stagnationBetween signale deux cycles sans le moindre progrès", () => {
   assert.deepEqual(stagnationBetween(audit(72, 2), audit(72, 2)), {
-    avant: { score: 72, severes: 2 },
-    apres: { score: 72, severes: 2 }
+    avant: { score: 72, severes: 2, critiques: 0 },
+    apres: { score: 72, severes: 2, critiques: 0 }
   });
-  assert.ok(stagnationBetween(audit(72, 2), audit(68, 3)), "régression sur les deux dimensions");
+  assert.ok(stagnationBetween(audit(72, 2), audit(68, 3)), "régression sur toutes les dimensions");
+});
+
+test("résoudre des affirmations déterminantes est un progrès, même à score constant", () => {
+  // Régression introduite en 1.7.0 : depuis que les affirmations déterminantes non établies bloquent
+  // la validation, un cycle qui en résout trois sans faire bouger le score fait le travail utile.
+  // L'arrêter là aurait gaspillé exactement ce qu'on cherchait à obtenir.
+  const avecClaims = (score, critiques) => ({
+    ...audit(score, 0),
+    claims: Array.from({ length: critiques }, (_, index) => ({ affirmation: `A${index}`, critique: true, statut: "NON_VERIFIE" }))
+  });
+  assert.equal(stagnationBetween(avecClaims(91, 3), avecClaims(91, 0)), null, "trois affirmations établies");
+  assert.ok(stagnationBetween(avecClaims(91, 3), avecClaims(91, 3)), "aucune des trois dimensions ne progresse");
 });
 
 test("stagnationBetween reste muet faute de deux cycles à comparer", () => {

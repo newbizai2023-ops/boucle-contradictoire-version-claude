@@ -37,9 +37,12 @@ test("validateModel nomme le rôle fautif dans son message", () => {
 
 test("selectModels complète chaque rôle non fourni par la valeur par défaut du domaine", () => {
   assert.deepEqual(selectModels("technical"), MODEL_DEFAULTS.technical);
+  // Kimi est le falsificateur par défaut : le désigner comme rédacteur crée une collision, et le
+  // falsificateur bascule sur un repli. Un modèle ne peut pas réfuter le document qu'il a écrit.
   assert.deepEqual(selectModels("technical", { writer: "~moonshotai/kimi-latest" }), {
     ...MODEL_DEFAULTS.technical,
-    writer: "~moonshotai/kimi-latest"
+    writer: "~moonshotai/kimi-latest",
+    falsifier: "openai/gpt-5.6-terra"
   });
 });
 
@@ -92,4 +95,16 @@ test("le second avis est toujours confié à un autre modèle que le rédacteur"
   }
   const manuel = selectModels("general_analysis", { writer: "openai/gpt-5.6-terra", challenger: "openai/gpt-5.6-terra" });
   assert.notEqual(manuel.challenger, manuel.writer, "sélection manuelle : le doublon est corrigé");
+});
+
+test("le falsificateur n'est jamais l'arbitre ni le rédacteur", () => {
+  // En 1.7.0, la réfutation était confiée au modèle d'arbitrage : il cherchait les contradictions
+  // puis jugeait ses propres trouvailles, sur l'élément de preuve le plus lourd du dispositif.
+  for (const task of Object.keys(MODEL_DEFAULTS)) {
+    const models = selectModels(task);
+    assert.notEqual(models.falsifier, models.arbiter, `${task} : le falsificateur juge ses propres contradictions`);
+    assert.notEqual(models.falsifier, models.writer, `${task} : le falsificateur réfute son propre document`);
+  }
+  const manuel = selectModels("technical", { arbiter: "~moonshotai/kimi-latest" });
+  assert.notEqual(manuel.falsifier, manuel.arbiter, "sélection manuelle : la collision est corrigée");
 });

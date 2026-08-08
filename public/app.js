@@ -178,6 +178,10 @@ $('#reviewForm').addEventListener('submit', async event => {
   const autoModel = isChecked('#autoModel');
   formData.append('autoModel',String(autoModel));
   formData.append('firecrawl',String(isChecked('#webSearch')));
+  // « auto » n'est pas transmis : c'est l'absence du champ qui signifie « laisse le serveur
+  // décider ». Envoyer une chaîne vide serait interprété comme un choix.
+  const diversify = document.querySelector('input[name="diversify"]:checked')?.value;
+  if (diversify === 'true' || diversify === 'false') formData.append('diversify', diversify);
   // Les trois sélecteurs restent renseignés même masqués : ne les transmettre qu'en sélection
   // manuelle, sinon ils décrivent un choix que l'utilisateur n'a pas fait. Le serveur les ignore
   // désormais en mode automatique — cette condition évite simplement d'envoyer une intention
@@ -443,8 +447,9 @@ function renderClaims(audits){
   const lignes = ordonnees.map(claim=>{
     const etat = CLAIM_STATUS[claim.statut] || CLAIM_STATUS.NON_VERIFIE;
     const sources = (claim.sources||[]).map(url=>`<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`).join(' ');
+    const retro = claim.retrogradation ? `<small class="muted">rétrogradée : ${esc(claim.retrogradation)}</small>` : '';
     return `<tr class="claim ${etat.css}">
-      <td><span class="source-status ${etat.css}">${etat.label}</span></td>
+      <td><span class="source-status ${etat.css}">${etat.label}</span>${retro}</td>
       <td>${claim.critique?'<b title="La conclusion en dépend">déterminante</b>':'—'}</td>
       <td>${esc(claim.type)}</td>
       <td>${esc(claim.affirmation)}${sources?`<div class="claim-sources">${sources}</div>`:''}</td>
@@ -481,7 +486,15 @@ function renderContradiction(data){
   if(data.falsification){
     const f = data.falsification;
     const verdictCss = {CONFIRME:'ok', AFFAIBLI:'warn', CONTREDIT:'bad'}[f.verdict] || 'unchecked';
-    const contradictions = f.contradictions.map(c=>`<li>${esc(c.affirmation)} <span class="source-status ${severityCss(c.gravite)}">${esc(c.gravite||'')}</span><small>${esc(c.extrait||'')}</small><a href="${esc(c.source)}" target="_blank" rel="noopener">${esc(c.source)}</a></li>`).join('');
+    // Une contradiction n'est opposable que si sa citation a été retrouvée dans la page extraite :
+    // l'afficher sans le dire laisserait croire qu'une objection écartée pèse sur le verdict.
+    const contradictions = f.contradictions.map(c=>{
+      const confirmee = c.confirmee === true;
+      const etat = confirmee
+        ? '<span class="source-status bad">Confirmée</span>'
+        : `<span class="source-status unchecked">Écartée — ${esc(c.preuve?.motif || 'citation non vérifiée')}</span>`;
+      return `<li>${esc(c.affirmation)} <span class="source-status ${severityCss(c.gravite)}">${esc(c.gravite||'')}</span> ${etat}<small>${esc(c.extrait||'')}</small><a href="${esc(c.source)}" target="_blank" rel="noopener">${esc(c.source)}</a></li>`;
+    }).join('');
     const recentes = f.donnees_plus_recentes.map(d=>`<li>${esc(d.sujet)}<small>document : ${esc(d.valeur_document||'—')} → trouvé : ${esc(d.valeur_trouvee||'—')}</small><a href="${esc(d.source)}" target="_blank" rel="noopener">${esc(d.source)}</a></li>`).join('');
     blocs.push(`<div class="arbitration"><div class="arbitration-head"><h3>Recherche adversariale</h3><span class="verdict ${verdictCss}">${esc(f.verdict)}</span></div>
       <p class="muted">Une étape dont la mission n’est pas d’auditer le document mais de le démentir, avec la recherche web dont l’auditeur ne dispose pas. Toute objection sans source a été écartée.</p>
