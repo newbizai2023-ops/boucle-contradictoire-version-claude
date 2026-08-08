@@ -186,6 +186,8 @@ button:focus-visible, .tab:focus-visible, a:focus-visible {
 .feed-item:not(:last-child)::before { content: ""; position: absolute; left: 8px; top: 16px; bottom: 0; width: 2px; background: var(--line); }
 .feed-marker { width: 16px; height: 16px; margin-top: 3px; border-radius: 50%; border: 3px solid var(--panel); background: var(--primary); box-shadow: 0 0 0 1px var(--line); z-index: 1; transition: background-color .2s; }
 .feed-item.source-ping .feed-marker { background: var(--warn); }
+/* Reprise après une réponse vide : ni un progrès, ni une erreur — une attente expliquée. */
+.feed-item.retry .feed-marker { background: var(--muted); }
 .feed-item.sources .feed-marker { background: var(--warn); }
 .feed-item.audit .feed-marker { background: #77a8ff; }
 .feed-item.documents .feed-marker { background: var(--accent); }
