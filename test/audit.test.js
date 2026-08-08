@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isSevere, auditDecision, shouldStopAfterAudit } from "../lib/audit.js";
+import {
+  isSevere,
+  auditDecision,
+  shouldStopAfterAudit,
+  unreachableCitedSources,
+  stagnationBetween,
+  normalizeArbitration
+} from "../lib/audit.js";
 
 /** Audit qui satisfait tous les critères d'arrêt : chaque test n'en dégrade qu'un à la fois. */
 const auditConforme = {
@@ -128,4 +135,127 @@ test("un audit vide ou absent ne fait pas planter la condition d'arrêt", () => 
 test("le seuil de score est respecté à l'égalité", () => {
   assert.equal(shouldStopAfterAudit({ ...auditConforme, score_global: 90 }, 90).stop, true);
   assert.equal(shouldStopAfterAudit({ ...auditConforme, score_global: 89 }, 90).stop, false);
+});
+
+// ---------------------------------------------------------------------------
+// Vérité terrain des sources
+// ---------------------------------------------------------------------------
+
+const DOCUMENT_CITANT = "Voir https://vivante.example/a et https://morte.example/b pour le détail.";
+const SOURCES_MESUREES = [
+  { url: "https://vivante.example/a", accessible: true },
+  { url: "https://morte.example/b", accessible: false, reason: "HTTP 404" }
+];
+
+test("une source citée et mesurée injoignable empêche l'arrêt, même si l'auditeur ne signale rien", () => {
+  // Le cœur du correctif : la condition d'arrêt ne lisait que `sources_non_verifiees`, une liste
+  // écrite par le modèle. Un auditeur omettant le champ laissait valider un document truffé de
+  // liens morts, alors que Firecrawl avait mesuré leur inaccessibilité.
+  const verdict = shouldStopAfterAudit(auditConforme, 90, { sources: SOURCES_MESUREES, document: DOCUMENT_CITANT });
+  assert.equal(verdict.stop, false);
+  assert.deepEqual(verdict.motifs, ["1 source(s) citée(s) et injoignable(s) au contrôle"]);
+  assert.deepEqual(verdict.injoignables, ["https://morte.example/b"]);
+});
+
+test("une source injoignable retirée du document ne bloque plus la validation", () => {
+  // Condition de convergence : le cache des sources n'oublie jamais une URL contrôlée. Sans le
+  // filtre sur les URL réellement citées, un lien mort supprimé par une correction bloquerait la
+  // boucle indéfiniment — la correction attendue deviendrait impossible à satisfaire.
+  const verdict = shouldStopAfterAudit(auditConforme, 90, {
+    sources: SOURCES_MESUREES,
+    document: "Le lien mort a été retiré, seul https://vivante.example/a subsiste."
+  });
+  assert.equal(verdict.stop, true);
+  assert.deepEqual(verdict.motifs, []);
+});
+
+test("une source non contrôlée ne compte pas comme un échec de contrôle", () => {
+  // `accessible: null` = Firecrawl désactivé ou budget épuisé. On ne peut pas reprocher au
+  // document une vérification qui n'a pas eu lieu, sinon désactiver Firecrawl condamnerait toute
+  // analyse à consommer tous ses cycles.
+  const verdict = shouldStopAfterAudit(auditConforme, 90, {
+    sources: [{ url: "https://morte.example/b", accessible: null, reason: "Vérification Firecrawl désactivée" }],
+    document: DOCUMENT_CITANT
+  });
+  assert.equal(verdict.stop, true);
+});
+
+test("unreachableCitedSources ignore les URL absentes du document et tolère les entrées vides", () => {
+  assert.deepEqual(unreachableCitedSources(DOCUMENT_CITANT, SOURCES_MESUREES), ["https://morte.example/b"]);
+  assert.deepEqual(unreachableCitedSources("", SOURCES_MESUREES), []);
+  assert.deepEqual(unreachableCitedSources(DOCUMENT_CITANT, []), []);
+  assert.deepEqual(unreachableCitedSources(DOCUMENT_CITANT, null), []);
+  assert.doesNotThrow(() => unreachableCitedSources(undefined, [null, undefined, {}]));
+});
+
+test("la citation est reconnue au-delà des douze premières URL du document", () => {
+  // extractUrls borne les *candidates à la vérification* à douze pour maîtriser le coût Firecrawl.
+  // La condition d'arrêt, elle, doit voir tous les liens du document : sinon un lien mort placé en
+  // fin de bibliographie échappe au contrôle.
+  const document = Array.from({ length: 20 }, (_, index) => `https://exemple.fr/${index}`).join(" ");
+  const sources = [{ url: "https://exemple.fr/19", accessible: false }];
+  assert.deepEqual(unreachableCitedSources(document, sources), ["https://exemple.fr/19"]);
+});
+
+// ---------------------------------------------------------------------------
+// Stagnation
+// ---------------------------------------------------------------------------
+
+const audit = (score, severes) => ({
+  score_global: score,
+  anomalies: Array.from({ length: severes }, () => ({ gravite: "critique" }))
+});
+
+test("stagnationBetween ne signale rien tant qu'une dimension progresse", () => {
+  assert.equal(stagnationBetween(audit(60, 2), audit(70, 2)), null, "le score progresse");
+  assert.equal(stagnationBetween(audit(60, 2), audit(60, 1)), null, "les anomalies sévères reculent");
+  assert.equal(stagnationBetween(audit(60, 3), audit(55, 1)), null, "un score en baisse reste un progrès si les anomalies reculent");
+});
+
+test("stagnationBetween signale deux cycles sans le moindre progrès", () => {
+  assert.deepEqual(stagnationBetween(audit(72, 2), audit(72, 2)), {
+    avant: { score: 72, severes: 2 },
+    apres: { score: 72, severes: 2 }
+  });
+  assert.ok(stagnationBetween(audit(72, 2), audit(68, 3)), "régression sur les deux dimensions");
+});
+
+test("stagnationBetween reste muet faute de deux cycles à comparer", () => {
+  assert.equal(stagnationBetween(undefined, audit(72, 2)), null);
+  assert.equal(stagnationBetween(audit(72, 2), undefined), null);
+  assert.doesNotThrow(() => stagnationBetween({}, {}));
+});
+
+// ---------------------------------------------------------------------------
+// Confiances de l'arbitrage
+// ---------------------------------------------------------------------------
+
+test("normalizeArbitration conserve deux dimensions de confiance indépendantes", () => {
+  // Le cas que la confiance unique rendait inexprimable : base factuelle solide, recommandation
+  // dépendante d'hypothèses métier.
+  const arbitrage = normalizeArbitration({ decision: "APPROUVE_AVEC_RESERVES", confiance: 60, confiance_preuves: 92, confiance_conclusion: 60 });
+  assert.equal(arbitrage.confiance_preuves, 92);
+  assert.equal(arbitrage.confiance_conclusion, 60);
+  assert.equal(arbitrage.confiance, 60);
+  assert.ok(!("confiance_annoncee" in arbitrage), "aucun plafonnement ne s'est appliqué");
+});
+
+test("la confiance globale est plafonnée par la plus faible dimension, sans effacer la valeur annoncée", () => {
+  const arbitrage = normalizeArbitration({ confiance: 95, confiance_preuves: 40, confiance_conclusion: 80 });
+  assert.equal(arbitrage.confiance, 40, "on ne peut pas être plus sûr que ce qui soutient la conclusion");
+  assert.equal(arbitrage.confiance_annoncee, 95, "l'ajustement doit rester visible");
+});
+
+test("normalizeArbitration déduit la confiance globale quand le modèle l'omet", () => {
+  assert.equal(normalizeArbitration({ confiance_preuves: 70, confiance_conclusion: 55 }).confiance, 55);
+  assert.equal(normalizeArbitration({ confiance_preuves: 70 }).confiance, 70, "une seule dimension suffit à plafonner");
+});
+
+test("normalizeArbitration borne les valeurs aberrantes et tolère un arbitrage incomplet", () => {
+  assert.equal(normalizeArbitration({ confiance: 250, confiance_preuves: 250 }).confiance, 100);
+  assert.equal(normalizeArbitration({ confiance_preuves: -30, confiance_conclusion: 40 }).confiance, 0);
+  assert.equal(normalizeArbitration({ confiance: "82" }).confiance, 82, "un entier transmis en chaîne reste exploitable");
+  assert.deepEqual(normalizeArbitration({ decision: "REJETE" }), { decision: "REJETE" });
+  assert.equal(normalizeArbitration({ confiance: "élevée" }).confiance, "élevée", "une valeur inintelligible est laissée telle quelle");
+  assert.equal(normalizeArbitration(null), null);
 });

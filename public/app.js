@@ -343,7 +343,61 @@ function scrollFeedToLatest(feed){
 }
 function resetButton(){ $('#submitButton').disabled=false; $('#submitButton').textContent='Lancer la boucle'; }
 function showError(error){ $('#error').textContent=error.message; $('#error').hidden=false; $('#error').scrollIntoView({block:'nearest'}); }
-function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; rememberCurrentRun(data.id, data.request); $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=`<h3>Arbitrage Grok</h3><pre>${esc(JSON.stringify(data.arbitration,null,2))}</pre>`; $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); updateTabsOverflow(); }
+function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; rememberCurrentRun(data.id, data.request); $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; renderStopReason($('#stopReason'), data.stopReason); $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=renderArbitration(data.arbitration); $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); updateTabsOverflow(); }
+// La raison d'arrêt était enregistrée et historisée mais n'apparaissait nulle part : rien ne
+// distinguait à l'écran une boucle qui s'est arrêtée parce que l'audit validait, une boucle
+// interrompue faute de cycles, et une boucle abandonnée pour stagnation.
+function renderStopReason(element, stopReason){
+  if(!element) return;
+  element.textContent = stopReason || '';
+  element.hidden = !stopReason;
+  element.className = /stagnation|maximal/i.test(String(stopReason||'')) ? 'stop-reason warn' : 'stop-reason';
+}
+// Les motifs de l'arbitre sont des objets {constat, preuve} ; les réserves et actions attendues
+// sont des chaînes. Un modèle peut livrer l'un pour l'autre : la forme reçue est rendue telle
+// quelle plutôt que d'afficher « [object Object] ».
+function arbitrationList(title, items){
+  if(!Array.isArray(items) || !items.length) return '';
+  const entries = items.map(item => {
+    if(item && typeof item === 'object') {
+      const head = item.constat ?? item.motif ?? JSON.stringify(item);
+      const proof = item.preuve ? `<small>${esc(String(item.preuve))}</small>` : '';
+      return `<li>${esc(String(head))}${proof}</li>`;
+    }
+    return `<li>${esc(String(item))}</li>`;
+  }).join('');
+  return `<div class="arbitration-list"><h4>${esc(title)}</h4><ul>${entries}</ul></div>`;
+}
+const VERDICT_CSS = { APPROUVE:'ok', APPROUVE_AVEC_RESERVES:'warn', REJETE:'bad' };
+function confidenceCard(label, value, hint){
+  const known = Number.isFinite(Number(value));
+  const percent = known ? Math.min(100, Math.max(0, Number(value))) : 0;
+  return `<article class="confidence"><span>${esc(label)}</span><strong>${known?`${percent}<em>/100</em>`:'—'}</strong>
+    <div class="confidence-bar"><span style="width:${percent}%"></span></div><small>${esc(hint)}</small></article>`;
+}
+// Les deux dimensions de confiance sont indépendantes : des preuves solides peuvent porter une
+// recommandation fragile. Les afficher séparément est tout l'intérêt de les avoir demandées —
+// noyées dans le JSON brut, elles seraient restées invisibles.
+function renderArbitration(arbitration){
+  if(!arbitration) return '';
+  const verdict = String(arbitration.decision||'—');
+  const plafonnee = Number.isFinite(Number(arbitration.confiance_annoncee))
+    ? `<p class="arbitration-note">Confiance globale ramenée de ${esc(String(arbitration.confiance_annoncee))} à ${esc(String(arbitration.confiance))} : elle ne peut pas dépasser la plus faible de ses deux dimensions.</p>`
+    : '';
+  return `<div class="arbitration">
+    <div class="arbitration-head"><h3>Arbitrage final indépendant</h3><span class="verdict ${VERDICT_CSS[verdict]||'unchecked'}">${esc(verdict)}</span></div>
+    <div class="confidence-grid">
+      ${confidenceCard('Confiance globale', arbitration.confiance, 'Plafonnée par la plus faible des deux dimensions')}
+      ${confidenceCard('Confiance dans les preuves', arbitration.confiance_preuves, 'Solidité, indépendance et accessibilité des sources')}
+      ${confidenceCard('Confiance dans la conclusion', arbitration.confiance_conclusion, 'Dépendance aux hypothèses et au périmètre retenus')}
+    </div>
+    ${plafonnee}
+    ${arbitrationList('Motifs', arbitration.motifs)}
+    ${arbitrationList('Réserves', arbitration.reserves)}
+    ${arbitrationList('Actions requises', arbitration.actions_requises)}
+    <details><summary>Arbitrage brut (JSON)</summary><pre>${esc(JSON.stringify(arbitration,null,2))}</pre></details>
+  </div>`;
+}
 function renderScores(audits){ const keys=['exactitude_factuelle','qualite_sources','calculs','couverture','coherence','actualite']; return `<div class="table-wrap"><table><thead><tr><th>Cycle</th><th>Global</th>${keys.map(k=>`<th>${k.replaceAll('_',' ')}</th>`).join('')}</tr></thead><tbody>${audits.map(a=>`<tr><td>${a.cycle}</td><td>${a.score_global}</td>${keys.map(k=>`<td>${a.scores?.[k]??'—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`; }
 function sourceState(source){
   if(source.accessible===true)return{key:'accessible',label:'Accessible',detail:'Page extraite et contrôlée par Firecrawl',css:'ok'};
@@ -370,10 +424,11 @@ function renderRunDetail(run){
       <article><span>Sources</span><strong>${esc(String((run.sources||[]).filter(x=>x.accessible===true).length))}/${esc(String((run.sources||[]).length))}</strong></article>
       <article><span>Coût</span><strong>$${Number(run.totalCost||0).toFixed(4)}</strong></article>
     </div>
+    ${run.stopReason ? `<p class="stop-reason">${esc(run.stopReason)}</p>` : ''}
     <p class="request-summary">Demande : ${esc(summarizeRequest(run.request, 400))}</p>
     <div class="toolbar"><span>Exports :</span> ${exports}</div>
     <details open><summary>Document final</summary><pre>${esc(run.finalDocument||'')}</pre></details>
-    <details><summary>Arbitrage</summary><pre>${esc(JSON.stringify(run.arbitration,null,2))}</pre></details>
+    <details><summary>Arbitrage</summary>${renderArbitration(run.arbitration)}</details>
     <details><summary>Scores par cycle</summary>${renderScores(run.audits||[])}</details>
     <details><summary>Sources contrôlées</summary>${renderSources(run.sources||[])}</details>
     <details><summary>Consommation</summary>${renderUsage(run.calls||[])}</details>`;

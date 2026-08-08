@@ -10,7 +10,7 @@ const resultat = {
   taskType: "financial",
   totalCost: 0.25,
   finalDocument: "abcde",
-  arbitration: { decision: "APPROUVE_AVEC_RESERVES", confiance: 82 },
+  arbitration: { decision: "APPROUVE_AVEC_RESERVES", confiance: 82, confiance_preuves: 90, confiance_conclusion: 82 },
   audits: [
     { cycle: 1, score_global: 60, scores: { calculs: 50 }, decision: "CORRIGER", resume: "à revoir", anomalies: [{ gravite: "élevée" }, { gravite: "faible" }] },
     { cycle: 2, score_global: 91, scores: { calculs: 90 }, decision: "VALIDER", anomalies: [] }
@@ -32,6 +32,8 @@ test("runSummary résume l'exécution sans rouvrir le détail", () => {
     finalScore: 91,
     arbiterDecision: "APPROUVE_AVEC_RESERVES",
     arbiterConfidence: 82,
+    arbiterEvidenceConfidence: 90,
+    arbiterConclusionConfidence: 82,
     promptTokens: 130,
     completionTokens: 50,
     sourcesTotal: 3,

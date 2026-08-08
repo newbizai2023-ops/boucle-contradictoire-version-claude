@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractUrls, annotationSources, sourceClass } from "../lib/sources.js";
+import { extractUrls, annotationSources, sourceClass, sourceBudget } from "../lib/sources.js";
 
 test("extractUrls repère les URL en texte brut et les dédoublonne", () => {
   const texte = "Voir https://a.example.com/1 puis https://b.example.com/2 et encore https://a.example.com/1.";
@@ -21,9 +21,27 @@ test("extractUrls ignore ce qui n'est pas une adresse http(s)", () => {
   assert.deepEqual(extractUrls(undefined), []);
 });
 
-test("extractUrls plafonne à 12 adresses", () => {
+test("extractUrls plafonne à 12 adresses par défaut, et les énumère toutes sur demande", () => {
   const texte = Array.from({ length: 30 }, (_, i) => `https://exemple.fr/${i}`).join(" ");
   assert.equal(extractUrls(texte).length, 12);
+  // La condition d'arrêt doit voir tous les liens du document, pas seulement ceux que le budget
+  // Firecrawl retient comme candidats à la vérification.
+  assert.equal(extractUrls(texte, Infinity).length, 30);
+});
+
+test("sourceBudget réserve toujours de quoi contrôler les sources d'un cycle tardif", () => {
+  // Le cycle 1 consomme son quota, mais les cycles suivants en conservent un : c'est ce qui permet
+  // de vérifier les URL qu'une correction vient d'ajouter. Avec l'ancien budget uniquement global,
+  // ce quota valait 0 dès que le premier cycle avait épuisé le plafond.
+  const quotas = { perCycle: 10, perRun: 20 };
+  assert.equal(sourceBudget(0, quotas), 10, "premier cycle : quota plein");
+  assert.equal(sourceBudget(10, quotas), 10, "deuxième cycle : quota plein, sous le plafond");
+  assert.equal(sourceBudget(16, quotas), 4, "le plafond par analyse reprend la main");
+});
+
+test("sourceBudget ne renvoie jamais de quota négatif", () => {
+  assert.equal(sourceBudget(20, { perCycle: 10, perRun: 20 }), 0);
+  assert.equal(sourceBudget(45, { perCycle: 10, perRun: 20 }), 0);
 });
 
 test("annotationSources lit les deux formes d'annotation OpenRouter", () => {
