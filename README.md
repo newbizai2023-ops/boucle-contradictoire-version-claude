@@ -101,11 +101,12 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 Les jobs actifs et leurs événements SSE vivent dans une `Map` en mémoire du processus (nécessaire pour le flux SSE), indépendamment de PostgreSQL. `sweepJobs()` s'exécute toutes les 10 minutes et supprime les jobs terminés depuis plus de 2 heures sans client connecté, avec une borne dure à 500 jobs conservés quel que soit leur âge. Conséquences pratiques :
 
 - sans `DATABASE_URL`, l'historique et le dashboard ne montrent que les jobs encore présents dans cette mémoire (perdus au redémarrage) ;
-- avec plusieurs instances de l'application derrière un répartiteur de charge, le client SSE doit atteindre la même instance que celle qui a créé le job (pas de file d'attente partagée).
+- avec plusieurs instances de l'application derrière un répartiteur de charge, le client SSE doit atteindre la même instance que celle qui a créé le job (pas de file d'attente partagée) ;
+- un échec d'écriture en base ne fait pas échouer une analyse aboutie : le résultat est publié malgré tout, l'incident est signalé dans le fil de suivi et le champ `persisted` du résultat indique si l'exécution a bien été enregistrée.
 
 ## Sécurité et fiabilité
 
-- **Code source direct** : `server.js` et `public/*` sont le code réellement exécuté par l'application, sans étape de génération ni de réécriture au démarrage.
+- **Code source direct** : `server.js`, `lib/*` et `public/*` sont le code réellement exécuté par l'application, sans étape de génération ni de réécriture au démarrage.
 - **Éviction périodique des tâches en mémoire** (`sweepJobs`) : borne la durée de rétention (2 heures) et le nombre maximal de jobs conservés (500), pour empêcher toute croissance mémoire illimitée du processus.
 - **Vérification TLS Postgres activée par défaut** en production, avec une option `DATABASE_CA_CERT` pour une autorité privée.
 - **Garde-fou `DEV_BYPASS_AUTH`** : le serveur refuse de démarrer si ce contournement d'authentification est combiné à `NODE_ENV=production`.
@@ -152,6 +153,16 @@ NODE_ENV=production
 DEV_BYPASS_AUTH=false
 ```
 
+Variables facultatives :
+
+```text
+FIRECRAWL_ZERO_DATA_RETENTION=false   # ne passer à true que si l'option est activée sur le compte
+DATABASE_SSL_REJECT_UNAUTHORIZED=true # vérification du certificat Postgres (défaut : activée)
+DATABASE_CA_CERT=                     # certificat PEM d'une autorité privée
+```
+
+`PORT` est fourni automatiquement par Render ; en local, il vaut 3000 par défaut.
+
 Les clés réelles ne doivent jamais être ajoutées au dépôt.
 
 ## Fonctionnement
@@ -196,9 +207,13 @@ Les modèles peuvent être sélectionnés manuellement dans l’interface.
 
 - `technical` : code, bug, API, architecture, développement, script, GitHub ;
 - `financial` : prix, coût, budget, FinOps, ROI, économie, facturation ;
-- `legal` : contrat, droit, loi, règlement, conformité ;
-- `current_research` : actualité, annonce, veille, information récente ;
+- `legal` : contrat, juridique, loi, règlement, conformité ;
+- `current_research` : actualité, récent, dernier, aujourd('hui), annonce, veille ;
 - `general_analysis` : cas général.
+
+La classification porte sur la **demande saisie seule**, jamais sur le texte des documents joints : une pièce jointe ne doit pas déterminer le modèle qui la traitera.
+
+Les motifs sont recherchés en sous-chaîne, sans limite de mot : « trois » contient « roi » et « rapide » contient « api », ce qui produit des classements inattendus. Limite connue, figée par un test (`test/task.test.js`).
 
 ## Politique de sources
 
@@ -251,6 +266,8 @@ fc_...
 ```
 
 La validation effectuée dans l’interface contrôle le format, pas l’authenticité de la clé. L’authenticité est vérifiée lors de l’appel API.
+
+**Rétention nulle (ZDR)** : `FIRECRAWL_ZERO_DATA_RETENTION` vaut `false` par défaut et ne doit être passée à `true` que si l’option « Zero Data Retention » est réellement activée sur le compte Firecrawl (à demander à leur support). L’envoyer sans que le compte en dispose fait échouer **toutes** les requêtes avec une erreur HTTP 403, chaque source ressortant « inaccessible » alors que la clé est valide — constaté en production avant la 1.1.8.
 
 ## Prompts utilisés
 
@@ -413,7 +430,10 @@ Un document ne peut être validé automatiquement que si :
 - aucune anomalie critique ou élevée ne subsiste ;
 - aucune source essentielle n’est non vérifiée ;
 - aucun nouveau cycle n’est demandé ;
+- l’auditeur ne conclut pas à `CORRIGER` ;
 - l’arbitre rend une décision d’approbation.
+
+Lorsqu’un cycle supplémentaire est engagé, les motifs qui l’imposent sont affichés dans le fil de suivi et conservés dans la raison d’arrêt de l’analyse.
 
 ## Scores détaillés
 
