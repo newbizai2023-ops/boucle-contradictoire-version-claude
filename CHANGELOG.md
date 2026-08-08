@@ -15,6 +15,22 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.5] - 2026-08-08
+
+### Ajouté
+
+- La demande (tronquée) apparaît désormais en tête du fil de suivi « Suivi de l'analyse », dès le
+  lancement et après une reconnexion, pour confirmer visuellement quelle demande est en cours de
+  traitement.
+
+### Corrigé
+
+- `currentRunId` était lu depuis `localStorage` au démarrage de la page mais n'y était jamais écrit
+  nulle part dans le code actuel : une valeur laissée par une version antérieure du site pouvait
+  donc rester bloquée indéfiniment, faisant reprendre le suivi d'un job ancien et sans rapport à
+  chaque rechargement de page, quelle que soit la nouvelle demande soumise. `currentRunId` (et la
+  demande associée) est maintenant correctement persisté à chaque nouveau job.
+
 ## [1.1.4] - 2026-08-08
 
 ### Corrigé

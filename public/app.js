@@ -1,6 +1,22 @@
 const $ = s => document.querySelector(s);
 let currentRunId = localStorage.getItem('currentRunId');
 let currentEventSource = null;
+// Mémorise la demande en cours pour l'afficher dans le fil de suivi et la restaurer telle quelle
+// en cas de reconnexion (rechargement de page pendant qu'une analyse tourne encore).
+function rememberCurrentRun(id, requestText){
+  currentRunId = id;
+  try { localStorage.setItem('currentRunId', id); localStorage.setItem('currentRunRequest', requestText ?? ''); } catch {}
+}
+function summarizeRequest(text, max = 240){
+  const flat = String(text || '').replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max).trimEnd()}…` : flat;
+}
+function showRequestSummary(text){
+  const node = $('#requestSummary');
+  const summary = summarizeRequest(text);
+  node.textContent = summary ? `Demande : ${summary}` : '';
+  node.hidden = !summary;
+}
 const HISTORY_CACHE_KEY = 'boucleHistoryCache';
 function readHistoryCache(){ try { return JSON.parse(localStorage.getItem(HISTORY_CACHE_KEY) || '[]'); } catch { return []; } }
 function writeHistoryCache(runs){ try { localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify((runs || []).slice(0,100))); } catch {} }
@@ -103,7 +119,7 @@ async function init() {
   syncFirecrawlAvailability();
   renderKeyStatus($('#apiKey'), 'openrouter', $('#apiKeyHelp'), $('#apiKeyIcon'), Boolean(health.hasOpenRouterKey));
   const [historyResult, dashboardResult] = await Promise.allSettled([loadHistory(), loadDashboard()]);
-  if (currentRunId) { $('#resultsPanel').hidden=false; $('#results').hidden=true; $('#progressPanel').hidden=false; resetFeed(); setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
+  if (currentRunId) { $('#resultsPanel').hidden=false; $('#results').hidden=true; $('#progressPanel').hidden=false; resetFeed(); showRequestSummary(localStorage.getItem('currentRunRequest')); setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
   if (historyResult.status === 'rejected') $('#historyList').innerHTML = `<p class="error">Historique indisponible : ${esc(historyResult.reason.message)}</p>`;
   if (dashboardResult.status === 'rejected') $('#dashboard').innerHTML = `<p class="error">Tableau de bord indisponible : ${esc(dashboardResult.reason.message)}</p>`;
   updateTabsOverflow();
@@ -140,7 +156,7 @@ $('#reviewForm').addEventListener('submit', async event => {
   if (!$('#request').checkValidity()) return showError(new Error('La demande doit contenir au moins 20 caractères.'));
   if (!validateKeys(true)) return;
   $('#submitButton').disabled = true; $('#submitButton').textContent='Initialisation…';
-  $('#resultsPanel').hidden=false; $('#progressPanel').hidden=false; resetFeed(); appendFeedItem('start','Analyse demandée au serveur'); setProgress(1,'Envoi de la demande…');
+  $('#resultsPanel').hidden=false; $('#progressPanel').hidden=false; resetFeed(); showRequestSummary($('#request').value); appendFeedItem('start','Analyse demandée au serveur'); setProgress(1,'Envoi de la demande…');
   const formData = new FormData();
   formData.append('request',$('#request').value);
   formData.append('autoModel',String(isChecked('#autoModel')));
@@ -154,7 +170,7 @@ $('#reviewForm').addEventListener('submit', async event => {
   formData.append('firecrawlApiKey',$('#firecrawlApiKey').value.trim());
   [...$('#files').files].forEach(file=>formData.append('files',file));
   try {
-    const { id } = await json('/api/jobs',{method:'POST',body:formData}); currentRunId=id;
+    const { id } = await json('/api/jobs',{method:'POST',body:formData}); rememberCurrentRun(id, $('#request').value);
     $('#results').hidden=true; appendFeedItem('start','Tâche créée'); setProgress(2,'Initialisation de l’analyse'); watchJob(id);
   } catch(error) { appendFeedItem('error',`Échec du lancement : ${error.message}`); showError(error); resetButton(); }
 });
@@ -265,7 +281,7 @@ function scrollFeedToLatest(feed){
 }
 function resetButton(){ $('#submitButton').disabled=false; $('#submitButton').textContent='Lancer la boucle'; }
 function showError(error){ $('#error').textContent=error.message; $('#error').hidden=false; $('#error').scrollIntoView({block:'nearest'}); }
-function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; currentRunId=data.id; $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=`<h3>Arbitrage Grok</h3><pre>${esc(JSON.stringify(data.arbitration,null,2))}</pre>`; $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); updateTabsOverflow(); }
+function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; rememberCurrentRun(data.id, data.request); $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=`<h3>Arbitrage Grok</h3><pre>${esc(JSON.stringify(data.arbitration,null,2))}</pre>`; $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); updateTabsOverflow(); }
 function renderScores(audits){ const keys=['exactitude_factuelle','qualite_sources','calculs','couverture','coherence','actualite']; return `<div class="table-wrap"><table><thead><tr><th>Cycle</th><th>Global</th>${keys.map(k=>`<th>${k.replaceAll('_',' ')}</th>`).join('')}</tr></thead><tbody>${audits.map(a=>`<tr><td>${a.cycle}</td><td>${a.score_global}</td>${keys.map(k=>`<td>${a.scores?.[k]??'—'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`; }
 function sourceState(source){
   if(source.accessible===true)return{key:'accessible',label:'Accessible',detail:'Page extraite et contrôlée par Firecrawl',css:'ok'};
