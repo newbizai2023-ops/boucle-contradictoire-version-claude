@@ -1,6 +1,6 @@
 # Boucle Contradictoire
 
-Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historique PostgreSQL, exports et tableau de bord de consommation.
+Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historisation PostgreSQL requêtable, exports et consultation des données de toutes les analyses.
 
 **Version courante** : voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
 
@@ -39,7 +39,7 @@ lib/                 Logique sans effet de bord, importable par les tests
 test/                Suite node:test (npm test)
 public/
   index.html          Structure HTML de l'interface
-  app.js               Logique frontend : connexion, formulaire, suivi SSE, historique, dashboard
+  app.js               Logique frontend : connexion, formulaire, suivi SSE, historique, consultation
   styles.css           Styles (thèmes clair/sombre, mise en page responsive)
 docs/
   BUILD_PROMPT.md       Prompt maître autonome permettant de reconstruire l'application
@@ -81,7 +81,7 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 | POST | `/api/jobs` | Crée une analyse (multipart, jusqu'à 3 documents joints) et démarre la boucle en tâche de fond |
 | GET | `/api/jobs/:id/events` | Flux Server-Sent Events de progression d'une analyse |
 | GET | `/api/history` | Historique des analyses de l'utilisateur connecté |
-| GET | `/api/dashboard` | Agrégats de consommation (coût, tokens, répartition par modèle) sur 90 jours |
+| GET | `/api/dashboard` | Agrégats de consommation sur 90 jours — conservé pour compatibilité, supplanté par `/api/analytics` que l'interface utilise |
 | GET | `/api/runs/:id` | Détail complet d'une exécution passée (document, audits, sources, appels) |
 | GET | `/api/analytics` | Agrégats sur toutes les exécutions (sources, audits, consommation) |
 | GET | `/api/runs/:id/export/:format` | Export d'une analyse (`md`, `pdf`, `docx`, `xlsx`) |
@@ -95,7 +95,8 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 5. Produit une rédaction initiale avec recherche web OpenRouter.
 6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, 10 sources maximum par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible, sans anomalie critique/élevée, sans source essentielle non vérifiée, sans demande explicite de nouveau cycle et sans verdict `CORRIGER` de l'auditeur ; sinon correction complète du document et nouveau cycle. Les motifs de poursuite sont affichés dans le fil de suivi.
 7. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document.
-8. Enregistre le résultat en base (si configurée) et diffuse l'événement `complete`.
+8. Historise l'exécution si une base est configurée — ligne de synthèse, détail jsonb et lignes normalisées, en une transaction — puis diffuse l'événement `complete`. Un échec d'écriture est signalé mais ne fait pas échouer l'analyse : le résultat est publié dans tous les cas, et le champ `persisted` indique s'il a bien été enregistré.
+9. Journalise une ligne de fin (`[job] fin …`) résumant statut, cycles, score, arbitrage, sources, appels, tokens, coût, taille du document, durée et historisation. Une analyse interrompue produit une ligne `[job] échec …` et est historisée avec `status='error'`, son document déjà rédigé et ses cycles déjà consommés.
 
 À chaque étape, un événement est diffusé en SSE pour alimenter le fil de suivi de l'interface.
 
@@ -136,6 +137,7 @@ Les jobs actifs et leurs événements SSE vivent dans une `Map` en mémoire du p
 - Focus clavier harmonisé sur les boutons et onglets (même anneau que les champs de formulaire).
 - Thème clair activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
 - Lien rapide « Historique ↓ » dans l'en-tête pour un accès direct sans défiler toute la page.
+- Lignes d'historique activables au clavier (`Entrée`/`Espace`) autant qu'à la souris, ouvrant le détail de l'analyse sous le tableau.
 
 ## Déploiement
 
@@ -193,7 +195,7 @@ Nouveaux cycles de contrôle
         ↓
 Arbitrage final indépendant
         ↓
-Historique, dashboard et exports
+Historisation, consultation et exports
 ```
 
 La progression est diffusée en temps réel par Server-Sent Events et affichée sous forme de fil chronologique.
@@ -460,7 +462,9 @@ Lorsqu’un cycle supplémentaire est engagé, les motifs qui l’imposent sont 
 - validation du format des clés API ;
 - activation conditionnelle de Firecrawl ;
 - fil d’information chronologique avec défilement automatique ;
-- sélection manuelle ou automatique des modèles.
+- sélection manuelle ou automatique des modèles ;
+- historique cliquable ouvrant le détail d’une analyse passée ;
+- panneau de données historisées agrégeant toutes les analyses.
 
 ## État des services
 
@@ -474,19 +478,28 @@ l'application (source : `GET /api/health`, public) :
 | Authentification Google | `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` configurés | critique — aucune connexion possible (hors `DEV_BYPASS_AUTH`) |
 | Base de données | connexion PostgreSQL active (`SELECT 1`) | non bloquant — historique et dashboard limités à la mémoire du process |
 
-## Historique et exports
+## Historique et consultation
 
-Chaque exécution peut conserver :
+Lorsqu’une base est configurée, **toute** exécution est historisée — y compris celles qui échouent.
+Sont conservés : la demande, le type de tâche, les modèles, les versions successives, les audits,
+les sources, l’arbitrage, les coûts et tokens, le document final, la durée et, le cas échéant, le
+motif d’échec.
 
-- la demande ;
-- le type de tâche ;
-- les modèles ;
-- les versions successives ;
-- les audits ;
-- les sources ;
-- l’arbitrage ;
-- les coûts et tokens ;
-- le document final.
+Le détail complet reste dans la colonne `result` (jsonb) pour la relecture intégrale. En parallèle,
+les sources, les audits et les appels de modèle sont écrits en lignes normalisées, ce qui permet de
+les filtrer et de les agréger sans désérialiser chaque exécution — c’est ce qui alimente
+`GET /api/analytics`.
+
+Dans l’interface :
+
+- **Analyses passées** : chaque ligne indique statut, score final, cycles, sources contrôlées et
+  coût ; la sélectionner ouvre le détail complet (document, arbitrage, scores par cycle, sources,
+  consommation, liens d’export).
+- **Données historisées** : agrégats sur l’ensemble des analyses, en quatre onglets — vue
+  d’ensemble (validées, rejetées, en échec, score et cycles moyens, durée, coût), sources
+  (répartition par état et par catégorie, domaines les plus cités avec leur taux d’accessibilité
+  réel), audits (progression des scores par cycle, critères les plus faibles) et consommation
+  (par modèle et par rôle).
 
 Formats d’export : Markdown, PDF, Word et Excel.
 
@@ -543,6 +556,21 @@ Deux tests figent des comportements **constatés mais non souhaitables**, signal
 commentaire : les faux positifs de `detectTask` (« trois » contient « roi », « rapide » contient
 « api ») et l'usurpation de `sourceClass` par sous-domaine (`bbc.exemple.com`). Ils sont là pour
 qu'une correction future soit un changement délibéré et visible, pas une surprise.
+
+## Journaux
+
+Toutes les étapes notables émettent une ligne préfixée, pour pouvoir suivre une analyse depuis les
+journaux du service sans instrumentation supplémentaire :
+
+| Préfixe | Émis à |
+| --- | --- |
+| `[job] création` | création d'une analyse (identifiant, utilisateur, clés disponibles) |
+| `[openrouter]` | chaque appel de modèle, ainsi que les réponses vides et les bascules de repli |
+| `[firecrawl]` | décompte des sources candidates, puis chaque extraction et son issue |
+| `[json]` | échec de parsing d'un audit ou d'un arbitrage, avec le contenu brut tronqué |
+| `[db]` | échec d'initialisation ou d'historisation |
+| `[job] fin` | fin d'analyse : statut, cycles, score, arbitrage, sources, appels, tokens, coût, durée |
+| `[job] échec` | analyse interrompue, avec sa raison |
 
 ## Limites connues
 

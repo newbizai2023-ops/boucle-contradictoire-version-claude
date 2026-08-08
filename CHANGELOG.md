@@ -15,6 +15,24 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.5.1] - 2026-08-08
+
+### Documentation
+
+- Mise à jour du README après la 1.5.0, dont plusieurs sections décrivaient encore l'application
+  d'avant l'historisation : le déroulé de la boucle s'arrêtait à « enregistre le résultat en base »
+  sans mentionner ni les lignes normalisées, ni le caractère non fatal d'un échec d'écriture, ni le
+  journal de fin ; la section « Historique et exports » énumérait ce qu'une exécution « peut
+  conserver » sans dire que les échecs le sont aussi, ni que les données sont désormais
+  consultables ; l'inventaire de l'interface ignorait l'historique cliquable et le panneau de
+  données historisées.
+- `GET /api/dashboard` est signalé comme conservé pour compatibilité mais supplanté par
+  `GET /api/analytics`, seul utilisé par l'interface — l'ancienne entrée laissait croire à deux
+  fonctionnalités distinctes.
+- Nouvelle section **Journaux** : tableau des préfixes émis (`[job] création`, `[openrouter]`,
+  `[firecrawl]`, `[json]`, `[db]`, `[job] fin`, `[job] échec`) et de ce qu'ils signalent. Les
+  journaux sont le principal outil de diagnostic en production et n'étaient documentés nulle part.
+
 ## [1.5.0] - 2026-08-08
 
 ### Ajouté
