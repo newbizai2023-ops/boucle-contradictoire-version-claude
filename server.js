@@ -473,11 +473,18 @@ async function requestOpenRouter({ apiKey, model, system, user, json = false, we
 const FALLBACK_MODEL = "~anthropic/claude-sonnet-latest";
 
 /** Appelle un modèle, et si la réponse est vide, réessaie une fois sans recherche web (inutile de
- *  réessayer sans web si web était déjà désactivé : l'appel serait strictement identique). */
+ *  réessayer sans web si web était déjà désactivé : l'appel serait strictement identique).
+ *
+ *  `onRetry` rend la reprise visible. Sans elle, un réessai est indiscernable d'un blocage : chaque
+ *  tentative peut durer jusqu'à OPENROUTER_TIMEOUT_MS, et l'utilisateur n'avait aucun moyen de
+ *  savoir qu'il attendait une deuxième tentative plutôt qu'une étape figée. */
 async function requestWithRetry(args) {
   const primary = await requestOpenRouter(args);
-  if (primary.content || args.web === false) return primary;
+  // `retries: false` signifie *une* tentative : la reprise sans web compte aussi, faute de quoi une
+  // étape facultative pourrait encore occuper deux fois le délai d'expiration.
+  if (primary.content || args.web === false || args.retries === false) return primary;
   console.warn(`[openrouter] réponse vide modèle=${args.model} web=${args.web}; nouvel essai sans recherche web`);
+  args.onRetry?.(`${modelLabel(args.model)} n'a rien renvoyé : nouvel essai sans recherche web (jusqu'à ${Math.round(OPENROUTER_TIMEOUT_MS / 60_000)} min).`);
   return requestOpenRouter({ ...args, web: false });
 }
 
@@ -490,12 +497,18 @@ async function callOpenRouter(args) {
   const primary = await requestWithRetry(args);
   if (primary.content) return primary;
 
-  if (args.model !== FALLBACK_MODEL) {
+  // `retries: false` borne une étape *facultative* à une seule tentative. La chaîne complète —
+  // modèle avec web, modèle sans web, repli avec web, repli sans web — peut occuper quatre fois
+  // OPENROUTER_TIMEOUT_MS, soit seize minutes. C'est défendable pour la rédaction, dont dépend
+  // toute l'analyse ; ce serait absurde pour un second avis, qui n'est qu'un supplément et dont
+  // l'échec est déjà prévu.
+  if (args.retries !== false && args.model !== FALLBACK_MODEL) {
     console.warn(`[openrouter] bascule de ${args.model} vers ${FALLBACK_MODEL} après réponses vides`);
+    args.onRetry?.(`${modelLabel(args.model)} reste muet : bascule sur ${modelLabel(FALLBACK_MODEL)}.`);
     const alternative = await requestWithRetry({ ...args, model: FALLBACK_MODEL });
     if (alternative.content) return { ...alternative, fallbackFrom: args.model };
   }
-  throw new Error(`Réponse vide du modèle ${args.model}${args.model !== FALLBACK_MODEL ? ` et du repli ${FALLBACK_MODEL}` : ""} après nouvel essai.`);
+  throw new Error(`Réponse vide du modèle ${args.model}${args.retries !== false && args.model !== FALLBACK_MODEL ? ` et du repli ${FALLBACK_MODEL}` : ""}.`);
 }
 
 // ---------------------------------------------------------------------------
@@ -842,6 +855,10 @@ async function executeJob(job, user, body) {
   const diversification = shouldDiversify({ task, requested: parseOptionalBoolean(body.diversify) });
   result.diversifyRequested = diversification.run;
 
+  // Une reprise doit toujours produire une ligne dans le fil : une étape silencieuse pendant
+  // plusieurs minutes est indiscernable d'une étape bloquée.
+  const onRetry = message => emit(job, "insight", { category: "retry", message });
+
   emit(job, "models", { message: "Modèles sélectionnés", task, models });
   emit(job, "insight", {
     category: "strategy",
@@ -870,7 +887,9 @@ async function executeJob(job, user, body) {
       system: explorerSystem,
       user: explorePrompt(task, request, taskGuidance[task] || taskGuidance.general_analysis),
       json: true,
-      web: false
+      web: false,
+      retries: false,
+      onRetry
     });
     exploration = normalizeExploration(parseJson(exploreCall.content, "Le cadrage", exploreCall.finishReason));
     result.calls.push({ role: "cadrage", ...exploreCall });
@@ -885,7 +904,7 @@ async function executeJob(job, user, body) {
   const demandeCadree = brief ? `${brief}\n\n${request}` : request;
 
   emit(job, "progress", { step: "draft", cycle: 0, percent: PROGRESS_DRAFT, message: "Rédaction initiale avec recherche web" });
-  const first = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: writerPrompt(task, demandeCadree), web: true });
+  const first = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: writerPrompt(task, demandeCadree), web: true, onRetry });
   let document = first.content;
   result.versions.push({ cycle: 0, content: document });
   result.calls.push({ role: "redaction", ...first });
@@ -905,7 +924,7 @@ async function executeJob(job, user, body) {
   if (diversification.run) {
     try {
       emit(job, "progress", { step: "challenger", cycle: 0, percent: PROGRESS_CHALLENGER, message: `Second avis indépendant par ${modelLabel(models.challenger)}` });
-      const challengerCall = await callOpenRouter({ apiKey, model: models.challenger, system: writerSystem, user: writerPrompt(task, demandeCadree), web: true });
+      const challengerCall = await callOpenRouter({ apiKey, model: models.challenger, system: writerSystem, user: writerPrompt(task, demandeCadree), web: true, retries: false, onRetry });
       result.calls.push({ role: "second_avis", ...challengerCall });
       result.totalCost += challengerCall.usage.cost;
       result.challengerDocument = challengerCall.content;
@@ -918,7 +937,9 @@ async function executeJob(job, user, body) {
         system: divergenceSystem,
         user: divergencePrompt(request, document, challengerCall.content),
         json: true,
-        web: false
+        web: false,
+        retries: false,
+        onRetry
       });
       divergence = normalizeDivergence(parseJson(divergenceCall.content, "La comparaison des analyses", divergenceCall.finishReason));
       result.calls.push({ role: "divergence", ...divergenceCall });
@@ -926,7 +947,10 @@ async function executeJob(job, user, body) {
       emit(job, "insight", { category: "divergence", cycle: 0, message: divergenceSummary(divergence), details: divergence || undefined });
     } catch (error) {
       console.warn(`[diverge] second avis indisponible : ${error.message}`);
-      emit(job, "insight", { category: "divergence", cycle: 0, message: `Second avis indisponible : ${error.message}. L'analyse se poursuit sur la première lecture seule.` });
+      // Même catégorie que l'étape en cours : sinon l'entrée « challenger » resterait affichée
+      // comme en attente jusqu'à la fin de l'analyse, alors que l'étape est terminée.
+      const categorie = result.challengerDocument ? "divergence" : "challenger";
+      emit(job, "insight", { category: categorie, cycle: 0, message: `Second avis indisponible : ${error.message}. L'analyse se poursuit sur la première lecture seule.` });
     }
   }
   result.divergence = divergence;
@@ -953,7 +977,7 @@ async function executeJob(job, user, body) {
     });
 
     emit(job, "progress", { step: "audit", cycle, percent: cycleProgress("audit", cycle, maxCycles), message: `Cycle ${cycle} : audit détaillé` });
-    const auditCall = await callOpenRouter({ apiKey, model: models.auditor, system: auditorSystem, user: auditPrompt(request, document, verified, task), json: true, web: false });
+    const auditCall = await callOpenRouter({ apiKey, model: models.auditor, system: auditorSystem, user: auditPrompt(request, document, verified, task), json: true, web: false, onRetry });
     const audit = parseJson(auditCall.content, "L'audit", auditCall.finishReason);
     // L'inventaire des affirmations remplace la liste brute renvoyée par le modèle : types et
     // statuts y sont normalisés, et un statut absent vaut NON_VERIFIE plutôt que le bénéfice du
@@ -1059,7 +1083,7 @@ ${cycle === 1 ? divergenceBrief(divergence) : ""}
 
 SOURCES VÉRIFIÉES DISPONIBLES:
 ${JSON.stringify(verified.map(s => ({ url: s.url, accessible: s.accessible, title: s.title, sourceClass: s.sourceClass, reason: s.reason })), null, 2)}`;
-    const correction = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: correctionPrompt, web: true });
+    const correction = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: correctionPrompt, web: true, onRetry });
     document = correction.content;
     result.versions.push({ cycle, content: document });
     result.calls.push({ role: "correction", ...correction });
@@ -1085,7 +1109,9 @@ ${JSON.stringify(verified.map(s => ({ url: s.url, accessible: s.accessible, titl
         system: falsifierSystem,
         user: falsifyPrompt(request, document, derniersClaims, derniereAudit),
         json: true,
-        web: true
+        web: true,
+        retries: false,
+        onRetry
       });
       falsification = normalizeFalsification(parseJson(falsifyCall.content, "La réfutation", falsifyCall.finishReason));
       result.calls.push({ role: "refutation", ...falsifyCall });
@@ -1136,7 +1162,7 @@ SOURCES:
 ${JSON.stringify(result.sources.map(s => ({ url: s.url, accessible: s.accessible, sourceClass: s.sourceClass })), null, 2)}
 
 JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":0,"confiance_preuves":0,"confiance_conclusion":0,"motifs":[],"reserves":[],"actions_requises":[]}`;
-  const arbiterCall = await callOpenRouter({ apiKey, model: models.arbiter, system: arbiterSystem, user: arbiterPrompt, json: true, web: false });
+  const arbiterCall = await callOpenRouter({ apiKey, model: models.arbiter, system: arbiterSystem, user: arbiterPrompt, json: true, web: false, onRetry });
   const arbitration = normalizeArbitration(parseJson(arbiterCall.content, "L'arbitrage", arbiterCall.finishReason));
   result.calls.push({ role: "arbitrage", ...arbiterCall });
   result.totalCost += arbiterCall.usage.cost;

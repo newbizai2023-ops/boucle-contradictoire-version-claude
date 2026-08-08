@@ -15,6 +15,25 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+### Corrigé
+
+- **Une étape pouvait rester silencieuse jusqu'à seize minutes.** Quand un modèle renvoie une
+  réponse vide, `callOpenRouter` enchaînait jusqu'à quatre tentatives — modèle avec recherche,
+  modèle sans recherche, repli avec recherche, repli sans recherche — chacune pouvant atteindre le
+  délai d'expiration de quatre minutes. Aucun événement n'était émis entre-temps : le fil de suivi
+  restait figé sur la même étape, indiscernable d'un blocage. Constaté en production, six minutes
+  d'attente sur « Second avis indépendant ».
+
+  Deux corrections. Toute reprise émet désormais une ligne dans le fil (catégorie `retry`), qui dit
+  ce qui s'est passé et ce qui est tenté. Et les étapes **facultatives** — cadrage, second avis,
+  comparaison, réfutation — sont bornées à une seule tentative : leur échec est déjà prévu et sans
+  conséquence sur l'analyse, il n'y a aucune raison de payer une chaîne de replis pour un
+  supplément. Les étapes indispensables conservent la chaîne complète.
+
+- **L'échec du second avis laissait son entrée en attente indéfiniment.** Le message d'échec était
+  émis sous la catégorie `divergence` alors que l'étape affichée était `challenger` : l'entrée
+  « Second avis indépendant » restait donc marquée en cours jusqu'à la fin de l'analyse.
+
 ## [1.8.0] - 2026-08-08
 
 Robustesse des preuves. Après une analyse externe du dépôt en 1.7.0, six corrections retenues sur
