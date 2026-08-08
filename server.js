@@ -544,8 +544,15 @@ async function scrapeFirecrawl(url, apiKey) {
 
 /** Vérifie jusqu'à MAX_SOURCES_PER_RUN sources en parallèle (concurrence bornée) plutôt qu'en série. */
 async function verifySources(document, calls, firecrawlKey, job) {
-  const candidates = [...annotationSources(calls), ...extractUrls(document).map(url => ({ url, origin: "document" }))];
+  const fromAnnotations = annotationSources(calls);
+  const fromDocument = extractUrls(document);
+  const candidates = [...fromAnnotations, ...fromDocument.map(url => ({ url, origin: "document" }))];
   const unique = [...new Map(candidates.map(source => [source.url, source])).values()].slice(0, MAX_SOURCES_PER_RUN);
+  // Diagnostic : permet de distinguer "le rédacteur n'a cité aucune URL exploitable" (candidats=0,
+  // comportement normal) de "des URL existent mais scrapeFirecrawl() n'est jamais atteint" (bug),
+  // deux symptômes indiscernables depuis les logs [firecrawl] seuls puisqu'ils ne s'émettent que
+  // par appel effectif.
+  console.info(`[firecrawl] ${unique.length} source(s) candidate(s) à vérifier (${fromAnnotations.length} via annotations OpenRouter, ${fromDocument.length} via URL en texte brut du document)`);
   let completed = 0;
   return mapWithConcurrency(unique, SOURCE_VERIFICATION_CONCURRENCY, async source => {
     const verified = { ...source, ...(await scrapeFirecrawl(source.url, firecrawlKey)) };

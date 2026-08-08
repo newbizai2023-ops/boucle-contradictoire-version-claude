@@ -15,6 +15,16 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.6] - 2026-08-08
+
+### Ajouté
+
+- Log `[firecrawl]` indiquant le nombre de sources candidates trouvées (annotations OpenRouter +
+  URL en texte brut du document) avant même l'appel à Firecrawl. Plusieurs analyses consécutives
+  n'avaient produit aucun log Firecrawl malgré l'option activée, sans qu'il soit possible de
+  distinguer depuis les logs existants « aucune URL citée par le rédacteur » (normal) d'un
+  éventuel bug empêchant les candidats trouvés d'atteindre `scrapeFirecrawl()`.
+
 ## [1.1.5] - 2026-08-08
 
 ### Ajouté
