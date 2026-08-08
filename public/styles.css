@@ -170,8 +170,6 @@ button:focus-visible, .tab:focus-visible, a:focus-visible {
 /* Panneau de résultats                                                     */
 /* ---------------------------------------------------------------------- */
 
-.empty { min-height: 320px; display: grid; place-content: center; text-align: center; gap: 4px; }
-.loop { width: 60px; height: 60px; border-radius: 20px; display: grid; place-items: center; margin: auto; font-size: 2.1rem; background: color-mix(in srgb, var(--primary) 15%, transparent); color: var(--accent); }
 
 .progress { height: 13px; background: var(--panel-soft); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
 .progress span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--primary), var(--accent)); transition: width .3s; }
@@ -297,7 +295,6 @@ footer { padding: 26px 0 40px; color: var(--muted); text-align: center; font-siz
   .option-card { padding: 12px; }
   .section-title { align-items: flex-start; flex-wrap: wrap; }
   .results-panel { min-height: 300px; }
-  .empty { min-height: 220px; }
   .api-service-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .service-status { justify-self: start; }
   table { min-width: 620px; }

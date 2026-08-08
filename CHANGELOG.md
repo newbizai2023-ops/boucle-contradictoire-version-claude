@@ -15,6 +15,14 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.2] - 2026-08-08
+
+### Supprimé
+
+- Le cadre d'attente « Prêt pour une contre-analyse » du panneau de résultats. Le panneau reste
+  désormais entièrement masqué (au lieu d'afficher un grand encart vide) tant qu'aucune analyse
+  n'a été lancée ou reprise, et n'apparaît que pour le suivi de progression ou le résultat.
+
 ## [1.1.1] - 2026-08-08
 
 ### Corrigé

@@ -103,7 +103,7 @@ async function init() {
   syncFirecrawlAvailability();
   renderKeyStatus($('#apiKey'), 'openrouter', $('#apiKeyHelp'), $('#apiKeyIcon'), Boolean(health.hasOpenRouterKey));
   const [historyResult, dashboardResult] = await Promise.allSettled([loadHistory(), loadDashboard()]);
-  if (currentRunId) { $('#empty').hidden=true; $('#results').hidden=true; $('#progressPanel').hidden=false; resetFeed(); setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
+  if (currentRunId) { $('#resultsPanel').hidden=false; $('#results').hidden=true; $('#progressPanel').hidden=false; resetFeed(); setProgress(1,'Reconnexion au traitement…'); watchJob(currentRunId); }
   if (historyResult.status === 'rejected') $('#historyList').innerHTML = `<p class="error">Historique indisponible : ${esc(historyResult.reason.message)}</p>`;
   if (dashboardResult.status === 'rejected') $('#dashboard').innerHTML = `<p class="error">Tableau de bord indisponible : ${esc(dashboardResult.reason.message)}</p>`;
   updateTabsOverflow();
@@ -140,7 +140,7 @@ $('#reviewForm').addEventListener('submit', async event => {
   if (!$('#request').checkValidity()) return showError(new Error('La demande doit contenir au moins 20 caractères.'));
   if (!validateKeys(true)) return;
   $('#submitButton').disabled = true; $('#submitButton').textContent='Initialisation…';
-  $('#empty').hidden=true; $('#progressPanel').hidden=false; resetFeed(); appendFeedItem('start','Analyse demandée au serveur'); setProgress(1,'Envoi de la demande…');
+  $('#resultsPanel').hidden=false; $('#progressPanel').hidden=false; resetFeed(); appendFeedItem('start','Analyse demandée au serveur'); setProgress(1,'Envoi de la demande…');
   const formData = new FormData();
   formData.append('request',$('#request').value);
   formData.append('autoModel',String(isChecked('#autoModel')));
