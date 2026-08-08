@@ -383,14 +383,28 @@ function extractMessageText(message) {
   if (content && typeof content === "object") return String(content.text || content.content || "").trim();
   return "";
 }
-function parseJson(content, label) {
-  try {
-    return JSON.parse(content);
-  } catch {
-    const match = content.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error(`${label} n'est pas un JSON valide.`);
-    return JSON.parse(match[0]);
+/** Tente plusieurs extractions successives avant d'abandonner : le JSON brut, un éventuel bloc de
+ *  code markdown ```json ... ``` (certains modèles en ajoutent malgré response_format:json_object),
+ *  puis le plus grand fragment entre la première { et la dernière }. Journalise le contenu brut en
+ *  cas d'échec total, pour pouvoir diagnostiquer la cause exacte (troncature, texte parasite, etc.)
+ *  a posteriori depuis les logs plutôt qu'à l'aveugle. */
+function parseJson(content, label, finishReason) {
+  const candidates = [content];
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) candidates.push(fenced[1]);
+  const braced = content.match(/\{[\s\S]*\}/);
+  if (braced) candidates.push(braced[0]);
+
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // essaie la variante suivante
+    }
   }
+  console.error(`[json] ${label} : échec du parsing (finish_reason=${finishReason ?? "inconnu"}). Contenu brut (tronqué) : ${content.slice(0, 2000)}`);
+  const truncated = finishReason === "length" ? " La réponse a été tronquée par la limite de tokens (finish_reason=length) : augmenter OPENROUTER_MAX_TOKENS." : "";
+  throw new Error(`${label} n'est pas un JSON valide.${truncated}`);
 }
 function extractUrls(text) {
   return [...new Set((String(text).match(/https?:\/\/[^\s)\]}>"']+/g) || []).map(url => url.replace(/[.,;:!?]+$/, "")))].slice(0, 12);
@@ -725,7 +739,7 @@ async function executeJob(job, user, body) {
 
     emit(job, "progress", { step: "audit", cycle, percent: 22 + cycle * 14, message: `Cycle ${cycle} : audit détaillé` });
     const auditCall = await callOpenRouter({ apiKey, model: models.auditor, system: auditorSystem, user: auditPrompt(request, document, verified, task), json: true, web: false });
-    const audit = parseJson(auditCall.content, "L'audit");
+    const audit = parseJson(auditCall.content, "L'audit", auditCall.finishReason);
     result.audits.push({ cycle, ...audit });
     result.calls.push({ role: "audit", ...auditCall });
     result.totalCost += auditCall.usage.cost;
@@ -778,7 +792,7 @@ ${JSON.stringify(result.sources.map(s => ({ url: s.url, accessible: s.accessible
 
 JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":0,"motifs":[],"reserves":[],"actions_requises":[]}`;
   const arbiterCall = await callOpenRouter({ apiKey, model: models.arbiter, system: arbiterSystem, user: arbiterPrompt, json: true, web: false });
-  const arbitration = parseJson(arbiterCall.content, "L'arbitrage");
+  const arbitration = parseJson(arbiterCall.content, "L'arbitrage", arbiterCall.finishReason);
   result.calls.push({ role: "arbitrage", ...arbiterCall });
   result.totalCost += arbiterCall.usage.cost;
   result.arbitration = arbitration;
