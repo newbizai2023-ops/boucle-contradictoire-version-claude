@@ -15,6 +15,96 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.7.0] - 2026-08-08
+
+Les quatre évolutions restantes du chemin de convergence ([`docs/ANALYSE_METHODOLOGIE.md`](docs/ANALYSE_METHODOLOGIE.md)).
+Là où la 1.6.0 recâblait des décisions autour d'informations déjà produites, celles-ci produisent
+l'information qui manquait — elles coûtent donc des appels de modèle, et sont conditionnelles là où
+elles coûtent cher.
+
+### Ajouté
+
+- **Cadrage préalable de la demande** (`lib/explore.js`, +1 appel court sans recherche web). Un appel
+  produit les dimensions à couvrir, les questions de recherche associées, les angles morts et le
+  périmètre que la demande ne tranche pas ; le tout est préfixé à la demande transmise au rédacteur.
+
+  Sans cette étape, le périmètre de l'analyse était celui que le premier brouillon retenait en
+  silence, et les cycles suivants ne pouvaient que le perfectionner : une question mal cadrée le
+  restait. Le cadrage est confié à un autre modèle que le rédacteur, qui reçoit ainsi un périmètre
+  qu'il n'a pas choisi. L'échec de l'étape n'interrompt jamais l'analyse.
+
+- **Inventaire des affirmations** (`lib/claims.js`, table `run_claims`, **aucun appel
+  supplémentaire**). L'auditeur restitue désormais la liste des affirmations du document — type,
+  statut (`VERIFIE`, `NON_VERIFIE`, `CONTREDIT`), sources qui la portent, et si la conclusion en
+  dépend. C'est le travail qu'il faisait déjà pour les auditer, rendu explicite : il ne renvoyait
+  que les problèmes, jamais l'inventaire.
+
+  Trois conséquences. Une **porte de validation** supplémentaire : aucune affirmation déterminante
+  ne peut rester non vérifiée. Une **traçabilité** au niveau de l'affirmation, requêtable, là où
+  elle s'arrêtait au document et à la source. Et la **détection des régressions** : la correction
+  réécrit le document intégralement, rien ne garantissait qu'un fait établi au cycle 1 survive au
+  cycle 2 — les versions étaient conservées, jamais comparées. Le rapprochement se faisant sur
+  l'énoncé, ce dernier signal est informatif et non bloquant : une reformulation ne doit pas
+  suffire à enfermer la boucle.
+
+  Un statut absent ou inintelligible vaut `NON_VERIFIE`, jamais `VERIFIE` : un modèle qui omet le
+  champ ne doit pas obtenir gratuitement le bénéfice du doute.
+
+- **Réfutation adversariale** (`lib/falsify.js`, +0 à 1 appel **avec** recherche web). Une étape dont
+  la mission n'est pas d'auditer le document mais de le démentir : sources contradictoires, données
+  plus récentes, exceptions, hypothèses implicites.
+
+  Elle comble la limite la plus nette de l'application : l'auditeur travaillant hors ligne, celle-ci
+  pouvait établir qu'une affirmation n'était **pas étayée**, jamais qu'une source la
+  **contredisait**. Elle constatait des absences, pas des réfutations.
+
+  Toute objection sans URL est écartée par le code, et les sources produites passent le même
+  contrôle d'accessibilité que les autres. Une contradiction grave, sourcée et dont la page répond
+  dégrade le statut final **même sur un `APPROUVE`** : la décision de l'arbitre reste affichée telle
+  qu'il l'a rendue, la mesure ne disparaît pas pour autant.
+
+  Déclenchement déterministe : anomalie sévère subsistante, affirmation déterminante non établie,
+  boucle arrêtée sans converger, ou score au seuil sans aucune source primaire joignable — un
+  document convaincant que rien n'atteste.
+
+- **Second avis indépendant** (`lib/diverge.js`, +2 appels, conditionnel). Un second rédacteur, servi
+  par un autre modèle, traite la même demande **sans voir** la première analyse. Un troisième modèle
+  compare les deux : il ne désigne pas de gagnant, il identifie la *cause* de chaque divergence
+  (hypothèse, source, périmètre, horizon, calcul, critère) et la question qui permettrait de la
+  trancher. Ces questions rejoignent la correction du cycle 1 et l'arbitrage — le désaccord devient
+  un moteur de recherche, pas un vote.
+
+  Les accords non étayés sont comptés séparément : deux modèles d'accord sans source, c'est le
+  consensus le plus dangereux, parce qu'il inspire confiance. Automatique sur les domaines juridique
+  et financier, activable ou désactivable explicitement ailleurs.
+
+- Deux onglets dans les résultats : **Affirmations** (inventaire du dernier cycle, déterminantes non
+  établies en tête, régressions) et **Contradiction** (cadrage, second avis et désaccords,
+  réfutation). Mêmes rendus dans le détail d'une analyse historisée.
+
+- Colonnes résumées `runs.claims_total` et `runs.claims_critical_unverified` : de quoi retrouver les
+  analyses parties à l'arbitrage avec un trou dans leur démonstration.
+
+### Modifié
+
+- Le modèle du second avis est toujours résolu vers un modèle différent du rédacteur **et** de
+  l'arbitre, y compris en sélection manuelle.
+- Barre de progression réétalonnée pour les étapes ajoutées ; les étapes facultatives non
+  déclenchées font simplement sauter la barre, sans jamais la faire reculer.
+
+### Vérifié
+
+- Suite `npm test` portée à 149 tests (117 auparavant), dont deux nouveaux fichiers couvrant les
+  quatre étapes : bornage des sorties, refus des objections sans URL, déclencheurs de la réfutation,
+  rapprochement des affirmations entre cycles, et refus d'un second avis rendu par le rédacteur.
+- Simulation de bout en bout du pipeline complet sur le serveur réel, OpenRouter et Firecrawl
+  bouchonnés : 17 vérifications, dont l'ordre des étapes, le blocage d'un audit `VALIDER` à 95/100
+  par une affirmation déterminante non établie, le contrôle Firecrawl de la source contradictoire,
+  la dégradation d'un `APPROUVE` en approbation avec réserves, et l'enveloppe de 9 appels de modèle
+  sur une analyse à second avis et réfutation.
+- Rendu navigateur des deux nouveaux onglets en clair/sombre et desktop/mobile : aucune erreur
+  console, aucun débordement horizontal.
+
 ## [1.6.0] - 2026-08-08
 
 Quatre évolutions de la méthodologie de validation, issues de l'analyse comparée entre la

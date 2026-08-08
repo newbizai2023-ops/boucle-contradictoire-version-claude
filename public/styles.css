@@ -258,6 +258,17 @@ pre { white-space: pre-wrap; word-break: break-word; max-height: 650px; overflow
 .arbitration-list li { margin-bottom: 7px; line-height: 1.5; }
 .arbitration-list small { display: block; color: var(--muted); margin-top: 2px; }
 
+/* Inventaire des affirmations : la ligne porte son statut, la conclusion dépend des déterminantes. */
+.claim.warn td:first-child, .claim.bad td:first-child { border-left: 4px solid var(--warn); }
+.claim.bad td:first-child { border-left-color: var(--danger); }
+.claim td { vertical-align: top; }
+.claim-sources { margin-top: 5px; display: flex; flex-direction: column; gap: 2px; }
+.claim-sources a { color: var(--accent); font-size: .78rem; word-break: break-all; }
+.muted { color: var(--muted); }
+.arbitration + .arbitration { margin-top: 14px; }
+.arbitration-list ul ul { margin-top: 5px; }
+.arbitration-list a { display: block; color: var(--accent); font-size: .78rem; word-break: break-all; margin-top: 3px; }
+
 .source-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 12px; font-size: .85rem; }
 .source-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .source a { display: block; color: var(--accent); word-break: break-all; margin-top: 7px; }

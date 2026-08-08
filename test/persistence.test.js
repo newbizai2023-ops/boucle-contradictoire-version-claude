@@ -12,8 +12,26 @@ const resultat = {
   finalDocument: "abcde",
   arbitration: { decision: "APPROUVE_AVEC_RESERVES", confiance: 82, confiance_preuves: 90, confiance_conclusion: 82 },
   audits: [
-    { cycle: 1, score_global: 60, scores: { calculs: 50 }, decision: "CORRIGER", resume: "à revoir", anomalies: [{ gravite: "élevée" }, { gravite: "faible" }] },
-    { cycle: 2, score_global: 91, scores: { calculs: 90 }, decision: "VALIDER", anomalies: [] }
+    {
+      cycle: 1,
+      score_global: 60,
+      scores: { calculs: 50 },
+      decision: "CORRIGER",
+      resume: "à revoir",
+      anomalies: [{ gravite: "élevée" }, { gravite: "faible" }],
+      claims: [{ id: "CLAIM-001", type: "fait", affirmation: "Le support prend fin en 2026.", statut: "NON_VERIFIE", critique: true, sources: [] }]
+    },
+    {
+      cycle: 2,
+      score_global: 91,
+      scores: { calculs: 90 },
+      decision: "VALIDER",
+      anomalies: [],
+      claims: [
+        { id: "CLAIM-001", type: "fait", affirmation: "Le support prend fin en 2026.", statut: "VERIFIE", critique: true, sources: ["https://www.legifrance.gouv.fr/x"] },
+        { id: "CLAIM-002", type: "recommandation", affirmation: "Renouveler à 5 ans.", statut: "NON_VERIFIE", critique: false, sources: [] }
+      ]
+    }
   ],
   sources: [
     { url: "https://www.legifrance.gouv.fr/x", accessible: true, sourceClass: "primary_official", title: "T", statusCode: 200, markdown: "0123456789", origin: "openrouter" },
@@ -38,7 +56,9 @@ test("runSummary résume l'exécution sans rouvrir le détail", () => {
     completionTokens: 50,
     sourcesTotal: 3,
     sourcesAccessible: 1,
-    documentChars: 5
+    documentChars: 5,
+    claimsTotal: 2,
+    claimsCriticalUnverified: 0
   });
 });
 

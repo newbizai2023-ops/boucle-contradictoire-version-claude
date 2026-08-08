@@ -7,9 +7,9 @@ coût/bénéfice.
 
 > **État de l'analyse.** Les sections 1 à 5 décrivent l'application **telle qu'elle était en 1.5.2**,
 > au moment du diagnostic, et sont conservées en l'état : c'est ce qui rend les corrections
-> lisibles. Les quatre premières actions du §6 ont été livrées en **1.6.0** — les faiblesses §4.3
-> (partiellement), §4.5, §4.7 et §4.9 ne se présentent donc plus comme décrit. Voir « État au
-> 1.6.0 » en fin de §6.
+> lisibles. **Les huit actions du §6 sont désormais livrées** — quatre en 1.6.0, quatre en 1.7.0.
+> Aucune des faiblesses du §4 ne se présente donc plus comme décrit. Voir « État au 1.7.0 » en fin
+> de §6.
 
 Les références de code renvoient au dépôt à l'état de la branche courante.
 
@@ -316,29 +316,64 @@ supplémentaire** — elles sont **livrées en 1.6.0**.
 | 2 | Arrêt sur stagnation : comparer `score_global` et le nombre d'anomalies sévères entre cycles ; sortir avec `stopReason = "STAGNATION"` si aucun des deux ne progresse. | Nul (code, économise des appels) | Élevé | §4.7 | ✅ 1.6.0 |
 | 3 | Réserver un quota de vérification par cycle plutôt qu'un budget global saturable, pour que les sources ajoutées par une correction soient contrôlées et remontées. | Nul (code) | Moyen-élevé | §4.5 | ✅ 1.6.0 |
 | 4 | Deux confiances distinctes dans le JSON d'arbitrage : `confiance_preuves` et `confiance_conclusion`. | Nul (un champ de plus dans un appel existant) | Moyen | §4.9 | ✅ 1.6.0 |
-| 5 | Étape `EXPLORE` : un appel court avant la rédaction produisant perspectives et questions de recherche, préfixé au `writerPrompt`. | +1 appel court | Élevé | §4.1, §4.10 | à faire |
-| 6 | Passe d'extraction de claims après le brouillon : table `run_claims` (id, type, statut, sources liées) sur le modèle de `lib/persistence.js`, et porte « aucun claim critique non vérifié ». | +1 appel, + schéma | Élevé | §4.1, §4.8, §4.6 | à faire |
-| 7 | `FALSIFY` conditionnel : un appel adversarial en `web:true` cherchant explicitement des sources contradictoires, déclenché si anomalies sévères persistantes ou score élevé avec peu de sources primaires accessibles. | +0 à 1 appel | Élevé | §4.4 | à faire |
-| 8 | `DIVERSIFY` conditionnel : second rédacteur sur le même dossier, puis matrice de divergence, réservé aux domaines à risque (`legal`, `financial`) ou aux analyses dont le cycle 1 est faible. | +1 à 2 appels | Élevé mais coûteux | §4.2 | à faire |
+| 5 | Étape `EXPLORE` : un appel court avant la rédaction produisant perspectives et questions de recherche, préfixé au `writerPrompt`. | +1 appel court | Élevé | §4.1, §4.10 | ✅ 1.7.0 |
+| 6 | Passe d'extraction de claims après le brouillon : table `run_claims` (id, type, statut, sources liées) sur le modèle de `lib/persistence.js`, et porte « aucun claim critique non vérifié ». | **aucun appel** (contrat de l'auditeur étendu), + schéma | Élevé | §4.1, §4.8, §4.6 | ✅ 1.7.0 |
+| 7 | `FALSIFY` conditionnel : un appel adversarial en `web:true` cherchant explicitement des sources contradictoires, déclenché si anomalies sévères persistantes ou score élevé avec peu de sources primaires accessibles. | +0 à 1 appel | Élevé | §4.4 | ✅ 1.7.0 |
+| 8 | `DIVERSIFY` conditionnel : second rédacteur sur le même dossier, puis matrice de divergence, réservé aux domaines à risque (`legal`, `financial`) ou aux analyses dont le cycle 1 est faible. | +2 appels | Élevé mais coûteux | §4.2 | ✅ 1.7.0 |
 
-Enveloppe résultante : mode standard inchangé à ~5 appels, mode critique à ~10. À comparer aux 20-40
-appels du mode critique de la note — et le principe §18 reste respecté.
+Enveloppe mesurée après livraison : 4 appels sur une demande simple validée au premier cycle, 6 sur
+une analyse standard à deux cycles, 9 à 11 sur un domaine à enjeu avec second avis et réfutation. À
+comparer aux 20-40 appels du mode critique de la note — le principe §18 reste respecté.
+
+L'action 6 a coûté moins cher que prévu : l'extraction des affirmations n'avait pas besoin d'un
+appel dédié. L'auditeur lit déjà chaque affirmation et l'associe à une preuve — c'est la première
+ligne de son prompt — il ne restituait simplement que les problèmes, jamais l'inventaire. Étendre
+son contrat JSON a suffi.
 
 Deux exigences de la note sont à écarter en l'état, faute de procédure fiable : l'échelle E0–E5
 telle que définie (§5.1) et les métriques d'amélioration sans corpus de référence (§5.6).
 
-### État au 1.6.0
+### État au 1.7.0
 
-Les actions 1 à 4 sont implémentées. Les faiblesses §4.3 (porte déterministe alimentée par des
-nombres probabilistes), §4.5 (budget de sources saturé), §4.7 (pas de détection de stagnation) et
-§4.9 (une seule dimension d'incertitude) sont traitées ; elles restent décrites ci-dessus telles
-qu'elles se présentaient avant correction, parce que c'est ce qui rend la correction lisible.
+Les huit actions sont implémentées. Les faiblesses du §4 restent décrites ci-dessus telles qu'elles
+se présentaient avant correction, parce que c'est ce qui rend la correction lisible.
 
-§4.3 n'est traitée qu'à moitié, et volontairement : le score reste un nombre inventé par un modèle.
-Ce qui change, c'est que la porte ne s'en remet plus **uniquement** à lui — une mesure opposable
-(l'accessibilité réelle d'une source citée) peut désormais refuser une validation que le score
-accordait. Les faiblesses structurelles §4.1, §4.2, §4.4, §4.6 et §4.8 demeurent entières : elles
-exigent les actions 5 à 8.
+| Faiblesse | État |
+|---|---|
+| §4.1 preuve en aval de la prose | traitée — cadrage préalable et inventaire des affirmations |
+| §4.2 pas d'interprétation indépendante | traitée — second avis conditionnel et matrice des divergences |
+| §4.3 porte déterministe, intrants probabilistes | **partiellement**, volontairement (voir ci-dessous) |
+| §4.4 pas de réfutation possible | traitée — recherche adversariale conditionnelle |
+| §4.5 budget de sources saturé | traitée — quota par cycle |
+| §4.6 réécriture sans contrôle de régression | traitée — comparaison des inventaires entre cycles, en signal informatif |
+| §4.7 pas de détection de stagnation | traitée |
+| §4.8 traçabilité au document | traitée — table `run_claims` |
+| §4.9 une seule dimension d'incertitude | traitée |
+| §4.10 cadrage par regex | atténuée — la regex choisit les modèles, le cadrage choisit le périmètre |
+
+§4.3 n'est traitée qu'à moitié, et délibérément : le score reste un nombre inventé par un modèle. Ce
+qui change, c'est que la porte ne s'en remet plus **uniquement** à lui. Trois mesures opposables
+peuvent désormais refuser une validation que le score accordait — l'accessibilité réelle d'une
+source citée, une affirmation déterminante non établie, et une contradiction sourcée dont la page
+répond, cette dernière allant jusqu'à dégrader un `APPROUVE` de l'arbitre.
+
+### Ce qui reste ouvert
+
+Aucune de ces limites n'appelle une action du §6 : ce sont des propriétés du terrain, pas des
+manques de conception.
+
+- **Accessible ≠ probant.** Le lien entre une affirmation et sa source n'est apprécié que par
+  l'auditeur, sur un extrait tronqué. Le mesurer supposerait un ancrage sémantique déterministe qui
+  n'existe pas.
+- **L'inventaire des affirmations est produit par un modèle** (§5.2 de la critique adressée à la
+  note, qui s'applique désormais à l'application) : une affirmation non extraite n'est vérifiée par
+  aucune porte. Mode de défaillance silencieux, sans contre-mesure connue à ce coût.
+- **L'échelle E0–E5 reste écartée** (§5.1), faute de test déterministe d'indépendance entre sources.
+- **L'indépendance du second avis est celle du modèle, pas de l'éditeur**, faute d'un quatrième
+  fournisseur dans la liste blanche.
+- **Les métriques d'amélioration restent incalculables** (§5.6) sans corpus de référence annoté.
+  C'est, à ce stade, le principal chantier restant : rien ne permet aujourd'hui de démontrer que les
+  huit actions ont amélioré la qualité, seulement qu'elles ont fermé des trous identifiés.
 
 ---
 

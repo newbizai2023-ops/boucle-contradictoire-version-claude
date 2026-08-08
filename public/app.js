@@ -209,14 +209,17 @@ function stepKey(kind, cycle){ return `${kind}:${cycle ?? ''}`; }
 // Les catégories/étapes ci-dessous ont un point de départ (progress) et un résultat
 // (insight) à faire coïncider dans une même entrée ; "arbiter" et "arbitration"
 // désignent la même étape finale sous deux noms différents.
+// Étapes appariées : le nom de l'étape "progress" et celui de la catégorie "insight" coïncident,
+// sauf pour l'arbitrage, qui porte deux noms différents de part et d'autre.
+const PAIRED_STEPS = ['explore','draft','challenger','divergence','sources','audit','falsify'];
 function progressStepKey(payload){
-  if (['draft','sources','audit'].includes(payload.step)) return stepKey(payload.step, payload.cycle);
+  if (PAIRED_STEPS.includes(payload.step)) return stepKey(payload.step, payload.cycle);
   if (payload.step === 'arbiter') return stepKey('arbitration', null);
   return null;
 }
 function insightStepKey(payload){
   if (payload.category === 'arbitration') return stepKey('arbitration', null);
-  if (['draft','sources','audit'].includes(payload.category)) return stepKey(payload.category, payload.cycle);
+  if (PAIRED_STEPS.includes(payload.category)) return stepKey(payload.category, payload.cycle);
   return null;
 }
 function nowLabel(){ return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
@@ -343,7 +346,7 @@ function scrollFeedToLatest(feed){
 }
 function resetButton(){ $('#submitButton').disabled=false; $('#submitButton').textContent='Lancer la boucle'; }
 function showError(error){ $('#error').textContent=error.message; $('#error').hidden=false; $('#error').scrollIntoView({block:'nearest'}); }
-function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; rememberCurrentRun(data.id, data.request); $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; renderStopReason($('#stopReason'), data.stopReason); $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=renderArbitration(data.arbitration); $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); updateTabsOverflow(); }
+function renderResult(data){ $('#progressPanel').hidden=true; $('#results').hidden=false; rememberCurrentRun(data.id, data.request); $('#status').textContent=data.status; const last=data.audits?.at(-1); $('#score').textContent=last?.score_global??'—'; $('#calls').textContent=data.calls?.length||0; $('#cost').textContent=`$${Number(data.totalCost||0).toFixed(4)}`; renderStopReason($('#stopReason'), data.stopReason); $('#finalDocument').textContent=data.finalDocument||''; $('#arbitration').innerHTML=renderArbitration(data.arbitration); $('#audits').innerHTML=(data.audits||[]).map(a=>`<article class="audit-card"><h3>Cycle ${a.cycle} — ${a.score_global}/100</h3><p>${esc(a.resume||'')}</p>${(a.anomalies||[]).map(x=>`<div class="issue ${esc(x.gravite)}"><b>${esc(x.categorie)} · ${esc(x.gravite)}</b><p>${esc(x.probleme)}</p><small>${esc(x.correction_attendue)}</small></div>`).join('')}</article>`).join(''); $('#scores').innerHTML=renderScores(data.audits||[]); $('#sources').innerHTML=renderSources(data.sources||[]); $('#claims').innerHTML=renderClaims(data.audits||[]); $('#contradiction').innerHTML=renderContradiction(data); $('#usage').innerHTML=renderUsage(data.calls||[]); document.querySelectorAll('[data-export]').forEach(a=>{ a.href=`/api/runs/${data.id}/export/${a.dataset.export}`; }); updateTabsOverflow(); }
 // La raison d'arrêt était enregistrée et historisée mais n'apparaissait nulle part : rien ne
 // distinguait à l'écran une boucle qui s'est arrêtée parce que l'audit validait, une boucle
 // interrompue faute de cycles, et une boucle abandonnée pour stagnation.
@@ -413,6 +416,93 @@ function renderSources(sources){
   const cards=sources.map((source,index)=>{const state=states[index];return `<article class="source ${state.css}"><div><b>${esc(source.title||source.url)}</b><span class="source-status ${state.css}">${state.label}</span></div><a href="${esc(source.url)}" target="_blank" rel="noopener">${esc(source.url)}</a><p>${esc(state.detail)}</p><small>${esc(source.sourceClass)}</small></article>`;}).join('');
   return summary+`<div class="source-grid">${cards}</div>`;
 }
+// Inventaire des affirmations du dernier cycle : le niveau de traçabilité qui manquait entre le
+// document et ses sources. Les déterminantes non établies sont mises en tête — ce sont elles qui
+// bloquent la validation, et la première chose qu'un lecteur doit voir.
+const CLAIM_STATUS = {
+  VERIFIE: { label: 'Établie', css: 'ok' },
+  NON_VERIFIE: { label: 'Non établie', css: 'warn' },
+  CONTREDIT: { label: 'Contredite', css: 'bad' }
+};
+function renderClaims(audits){
+  const dernier = audits?.at(-1);
+  const claims = dernier?.claims || [];
+  if(!claims.length) return '<p>Aucun inventaire d’affirmations : l’auditeur n’en a pas produit pour cette analyse.</p>';
+
+  const bloquantes = claims.filter(c=>c.critique && c.statut!=='VERIFIE');
+  const rang = c => (c.critique && c.statut!=='VERIFIE' ? 0 : c.critique ? 1 : c.statut!=='VERIFIE' ? 2 : 3);
+  const ordonnees = [...claims].sort((a,b)=>rang(a)-rang(b));
+
+  const alerte = bloquantes.length
+    ? `<p class="stop-reason warn">${bloquantes.length} affirmation(s) déterminante(s) non établie(s) : la conclusion repose sur du non démontré.</p>`
+    : '';
+  const regressions = (dernier?.regressions||[]).length
+    ? `<div class="arbitration-list"><h4>Perdues à la réécriture</h4><ul>${dernier.regressions.map(r=>`<li>${esc(r.affirmation)}<small>établie au cycle précédent → ${esc(r.apres)}</small></li>`).join('')}</ul></div>`
+    : '';
+
+  const lignes = ordonnees.map(claim=>{
+    const etat = CLAIM_STATUS[claim.statut] || CLAIM_STATUS.NON_VERIFIE;
+    const sources = (claim.sources||[]).map(url=>`<a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a>`).join(' ');
+    return `<tr class="claim ${etat.css}">
+      <td><span class="source-status ${etat.css}">${etat.label}</span></td>
+      <td>${claim.critique?'<b title="La conclusion en dépend">déterminante</b>':'—'}</td>
+      <td>${esc(claim.type)}</td>
+      <td>${esc(claim.affirmation)}${sources?`<div class="claim-sources">${sources}</div>`:''}</td>
+    </tr>`;
+  }).join('');
+
+  return `${alerte}<div class="source-summary"><span>Total : <b>${claims.length}</b></span><span>Déterminantes : <b>${claims.filter(c=>c.critique).length}</b></span><span>Établies : <b>${claims.filter(c=>c.statut==='VERIFIE').length}</b></span><span>Non établies : <b>${claims.filter(c=>c.statut!=='VERIFIE').length}</b></span></div>
+    <div class="table-wrap"><table><thead><tr><th>Statut</th><th>Portée</th><th>Type</th><th>Affirmation</th></tr></thead><tbody>${lignes}</tbody></table></div>${regressions}`;
+}
+
+// Les trois étapes qui existent pour mettre le document en difficulté : le cadrage qui l'empêche de
+// choisir son périmètre, le second avis qui le confronte à une autre lecture, la réfutation qui
+// cherche à le démentir. Regroupées ici parce qu'elles se lisent ensemble.
+function renderContradiction(data){
+  const blocs = [];
+
+  if(data.exploration){
+    const dimensions = data.exploration.dimensions.map(d=>`<li>${esc(d.axe)}${d.enjeu?` — <span class="muted">${esc(d.enjeu)}</span>`:''}${d.questions.length?`<ul>${d.questions.map(q=>`<li>${esc(q)}</li>`).join('')}</ul>`:''}</li>`).join('');
+    blocs.push(`<div class="arbitration"><h3>Cadrage préalable</h3><p class="muted">Produit avant toute rédaction, pour que le périmètre ne soit pas choisi en silence par le premier brouillon.</p>
+      <div class="arbitration-list"><h4>Dimensions à couvrir</h4><ul>${dimensions}</ul></div>
+      ${data.exploration.angles_morts.length?`<div class="arbitration-list"><h4>Angles morts signalés</h4><ul>${data.exploration.angles_morts.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`:''}
+      ${data.exploration.perimetre_a_preciser.length?`<div class="arbitration-list"><h4>Périmètre non tranché par la demande</h4><ul>${data.exploration.perimetre_a_preciser.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></div>`:''}</div>`);
+  }
+
+  if(data.divergence){
+    const desaccords = data.divergence.desaccords.map(d=>`<li>${esc(d.sujet)} <span class="source-status unchecked">${esc(d.cause)}</span>
+      <small><b>A :</b> ${esc(d.position_a)}</small><small><b>B :</b> ${esc(d.position_b)}</small><small><b>À trancher :</b> ${esc(d.question_a_trancher)}</small></li>`).join('');
+    const nonEtayes = data.divergence.accords.filter(a=>!a.etaye);
+    blocs.push(`<div class="arbitration"><h3>Second avis indépendant</h3><p class="muted">Une seconde analyse du même sujet, rédigée sans voir la première. Les désaccords ne sont pas départagés par un vote : ce sont des questions à instruire.</p>
+      ${desaccords?`<div class="arbitration-list"><h4>Désaccords de fond</h4><ul>${desaccords}</ul></div>`:'<p>Aucun désaccord de fond relevé.</p>'}
+      ${nonEtayes.length?`<div class="arbitration-list"><h4>Accords non étayés — un accord n’est pas une preuve</h4><ul>${nonEtayes.map(a=>`<li>${esc(a.sujet)}</li>`).join('')}</ul></div>`:''}</div>`);
+  }
+
+  if(data.falsification){
+    const f = data.falsification;
+    const verdictCss = {CONFIRME:'ok', AFFAIBLI:'warn', CONTREDIT:'bad'}[f.verdict] || 'unchecked';
+    const contradictions = f.contradictions.map(c=>`<li>${esc(c.affirmation)} <span class="source-status ${severityCss(c.gravite)}">${esc(c.gravite||'')}</span><small>${esc(c.extrait||'')}</small><a href="${esc(c.source)}" target="_blank" rel="noopener">${esc(c.source)}</a></li>`).join('');
+    const recentes = f.donnees_plus_recentes.map(d=>`<li>${esc(d.sujet)}<small>document : ${esc(d.valeur_document||'—')} → trouvé : ${esc(d.valeur_trouvee||'—')}</small><a href="${esc(d.source)}" target="_blank" rel="noopener">${esc(d.source)}</a></li>`).join('');
+    blocs.push(`<div class="arbitration"><div class="arbitration-head"><h3>Recherche adversariale</h3><span class="verdict ${verdictCss}">${esc(f.verdict)}</span></div>
+      <p class="muted">Une étape dont la mission n’est pas d’auditer le document mais de le démentir, avec la recherche web dont l’auditeur ne dispose pas. Toute objection sans source a été écartée.</p>
+      ${contradictions?`<div class="arbitration-list"><h4>Contradictions sourcées</h4><ul>${contradictions}</ul></div>`:''}
+      ${recentes?`<div class="arbitration-list"><h4>Données plus récentes</h4><ul>${recentes}</ul></div>`:''}
+      ${f.hypotheses_fragiles.length?`<div class="arbitration-list"><h4>Hypothèses fragiles</h4><ul>${f.hypotheses_fragiles.map(h=>`<li>${esc(h)}</li>`).join('')}</ul></div>`:''}
+      ${f.perimetres_non_couverts.length?`<div class="arbitration-list"><h4>Périmètres non couverts</h4><ul>${f.perimetres_non_couverts.map(p=>`<li>${esc(p)}</li>`).join('')}</ul></div>`:''}</div>`);
+  }
+
+  if(data.arbitrationOverride){
+    blocs.push(`<p class="stop-reason warn">Statut dégradé après arbitrage : ${esc(data.arbitrationOverride.raison)}. La décision de l’arbitre reste affichée telle qu’il l’a rendue.</p>`);
+  }
+
+  return blocs.length ? blocs.join('') : '<p>Aucune étape de contradiction supplémentaire n’a été déclenchée pour cette analyse : ni cadrage, ni second avis, ni réfutation.</p>';
+}
+// Même normalisation que côté serveur (lib/audit.js) : les modèles écrivent « élevée » là où le
+// contrat demande « elevee ». U+0300..U+036F en échappements, les littéraux seraient invisibles.
+function severityCss(gravite){
+  const brut = String(gravite||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  return /^(critique|elev)/.test(brut) ? 'bad' : 'warn';
+}
 function renderUsage(calls){ return `<div class="table-wrap"><table><thead><tr><th>Rôle</th><th>Modèle</th><th>Entrée</th><th>Sortie</th><th>Coût</th></tr></thead><tbody>${calls.map(c=>`<tr><td>${esc(c.role)}</td><td>${esc(c.model)}</td><td>${c.usage?.prompt_tokens||0}</td><td>${c.usage?.completion_tokens||0}</td><td>$${Number(c.usage?.cost||0).toFixed(4)}</td></tr>`).join('')}</tbody></table></div>`; }
 function renderRunDetail(run){
   const last = run.audits?.at(-1);
@@ -431,6 +521,8 @@ function renderRunDetail(run){
     <details><summary>Arbitrage</summary>${renderArbitration(run.arbitration)}</details>
     <details><summary>Scores par cycle</summary>${renderScores(run.audits||[])}</details>
     <details><summary>Sources contrôlées</summary>${renderSources(run.sources||[])}</details>
+    <details><summary>Affirmations inventoriées</summary>${renderClaims(run.audits||[])}</details>
+    <details><summary>Contradiction — cadrage, second avis, réfutation</summary>${renderContradiction(run)}</details>
     <details><summary>Consommation</summary>${renderUsage(run.calls||[])}</details>`;
 }
 async function showRunDetail(id){
