@@ -18,6 +18,13 @@ import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+// Logique sans effet de bord, extraite dans lib/ pour être couverte par `npm test` : ce module
+// démarre un serveur HTTP au chargement et ne peut donc pas être importé par une suite de tests.
+import { taskGuidance, writerPrompt, detectTask } from "./lib/task.js";
+import { modelLabel, resolveModels } from "./lib/models.js";
+import { mapWithConcurrency, usageOf, extractMessageText, parseJson, safeName } from "./lib/utils.js";
+import { extractUrls, annotationSources, sourceClass } from "./lib/sources.js";
+import { buildDashboard } from "./lib/dashboard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -295,131 +302,7 @@ RÈGLES DE DÉCISION
 - La confiance est un entier de 0 à 100 fondé sur la qualité et l'indépendance des preuves, pas sur le style.
 - Les motifs citent des constats précis des audits ou des sources. Les actions requises sont concrètes et vérifiables.`;
 
-const taskGuidance = {
-  technical: "DOMAINE TECHNIQUE : vérifie versions, prérequis, compatibilités, limites, sécurité, exemples reproductibles et documentation officielle. Sépare comportement documenté, comportement observé et hypothèse.",
-  financial: "DOMAINE FINANCIER/FINOPS : indique devise, région, période, taxes, remises, hypothèses d'usage, coûts unitaires, formules, scénarios et sensibilité. Ne compare que des périmètres économiquement équivalents.",
-  legal: "DOMAINE JURIDIQUE/CONFORMITÉ : privilégie textes officiels et versions consolidées. Indique juridiction, date d'entrée en vigueur, champ d'application, exceptions et incertitude. Ne présente pas l'analyse comme un avis juridique.",
-  current_research: "DOMAINE D'ACTUALITÉ : distingue date de publication et date de l'événement, vérifie les mises à jour, privilégie documents de première main et signale les faits encore évolutifs.",
-  general_analysis: "DOMAINE GÉNÉRAL : explicite critères, périmètre, hypothèses et limites ; privilégie les sources primaires et les comparaisons homogènes."
-};
-function writerPrompt(task, request) {
-  return `${taskGuidance[task] || taskGuidance.general_analysis}\n\nDEMANDE À TRAITER :\n${request}`;
-}
 
-function detectTask(request) {
-  const value = request.toLowerCase();
-  if (/code|bug|api|architecture|dévelop|script|github/.test(value)) return "technical";
-  if (/prix|coût|budget|finops|roi|économie|facturation/.test(value)) return "financial";
-  if (/contrat|juridique|loi|règlement|conformité/.test(value)) return "legal";
-  if (/actualité|récent|derni|aujourd|annonce|veille/.test(value)) return "current_research";
-  return "general_analysis";
-}
-
-// Correspond au tableau documenté dans le README : Opus pour les domaines à haut risque
-// (technique, financier, juridique), Sonnet pour l'actualité et l'analyse générale.
-const MODEL_DEFAULTS = {
-  technical: { writer: "~anthropic/claude-opus-latest", auditor: "openai/gpt-5.6-sol", arbiter: "~x-ai/grok-latest" },
-  financial: { writer: "~anthropic/claude-opus-latest", auditor: "openai/gpt-5.6-sol", arbiter: "~x-ai/grok-latest" },
-  legal: { writer: "~anthropic/claude-opus-latest", auditor: "openai/gpt-5.6-sol", arbiter: "~x-ai/grok-latest" },
-  current_research: { writer: "~anthropic/claude-sonnet-latest", auditor: "openai/gpt-5.6-sol", arbiter: "~x-ai/grok-latest" },
-  general_analysis: { writer: "~anthropic/claude-sonnet-latest", auditor: "~openai/gpt-latest", arbiter: "~x-ai/grok-latest" }
-};
-
-// Libellés lisibles pour les identifiants de modèle OpenRouter, alignés sur les options du
-// sélecteur (public/index.html). Sert à ce que les messages affichés côté client (fil de suivi)
-// citent le modèle réellement utilisé, y compris en sélection manuelle, plutôt qu'un texte figé.
-const MODEL_LABELS = {
-  "~anthropic/claude-opus-latest": "Claude Opus",
-  "~anthropic/claude-sonnet-latest": "Claude Sonnet",
-  "openai/gpt-5.6-sol": "GPT-5.6 Sol",
-  "openai/gpt-5.6-terra": "GPT-5.6 Terra",
-  "~openai/gpt-latest": "GPT",
-  "~moonshotai/kimi-latest": "Kimi",
-  "~x-ai/grok-latest": "Grok"
-};
-function modelLabel(id) {
-  return MODEL_LABELS[id] || String(id || "").replace(/^~/, "");
-}
-
-// Liste blanche des modèles acceptés en sélection manuelle. Valider uniquement le *format* de
-// l'identifiant ne suffisait pas : OPENROUTER_API_KEY (clé du déploiement) prime sur la clé
-// fournie par l'utilisateur, donc n'importe quel compte authentifié pouvait faire facturer au
-// déploiement le modèle de son choix, aussi coûteux soit-il. Le <select> de l'interface n'est
-// pas une protection — la contrainte doit être appliquée côté serveur. La liste est dérivée de
-// MODEL_LABELS, qui reflète déjà les options proposées par l'interface.
-const ALLOWED_MODELS = new Set(Object.keys(MODEL_LABELS));
-
-function validateModel(value, label) {
-  if (typeof value !== "string" || !ALLOWED_MODELS.has(value)) throw new Error(`${label} invalide ou non autorisé.`);
-  return value;
-}
-function selectModels(task, supplied = {}) {
-  const defaults = MODEL_DEFAULTS[task];
-  return {
-    writer: supplied.writer ? validateModel(supplied.writer, "Modèle rédacteur") : defaults.writer,
-    auditor: supplied.auditor ? validateModel(supplied.auditor, "Modèle auditeur") : defaults.auditor,
-    arbiter: supplied.arbiter ? validateModel(supplied.arbiter, "Modèle arbitre") : defaults.arbiter
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Utilitaires génériques
-// ---------------------------------------------------------------------------
-
-/** Applique `mapper` sur `items` avec au plus `limit` exécutions concurrentes. */
-async function mapWithConcurrency(items, limit, mapper) {
-  const results = new Array(items.length);
-  let cursor = 0;
-  async function worker() {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await mapper(items[index], index);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
-function usageOf(payload) {
-  return {
-    prompt_tokens: Number(payload?.prompt_tokens || 0),
-    completion_tokens: Number(payload?.completion_tokens || 0),
-    cost: Number(payload?.cost || 0)
-  };
-}
-function extractMessageText(message) {
-  const content = message?.content;
-  if (typeof content === "string") return content.trim();
-  if (Array.isArray(content)) return content.map(part => (typeof part === "string" ? part : part?.text || part?.content || "")).join("\n").trim();
-  if (content && typeof content === "object") return String(content.text || content.content || "").trim();
-  return "";
-}
-/** Tente plusieurs extractions successives avant d'abandonner : le JSON brut, un éventuel bloc de
- *  code markdown ```json ... ``` (certains modèles en ajoutent malgré response_format:json_object),
- *  puis le plus grand fragment entre la première { et la dernière }. Journalise le contenu brut en
- *  cas d'échec total, pour pouvoir diagnostiquer la cause exacte (troncature, texte parasite, etc.)
- *  a posteriori depuis les logs plutôt qu'à l'aveugle. */
-function parseJson(content, label, finishReason) {
-  const candidates = [content];
-  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) candidates.push(fenced[1]);
-  const braced = content.match(/\{[\s\S]*\}/);
-  if (braced) candidates.push(braced[0]);
-
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(candidate);
-    } catch {
-      // essaie la variante suivante
-    }
-  }
-  console.error(`[json] ${label} : échec du parsing (finish_reason=${finishReason ?? "inconnu"}). Contenu brut (tronqué) : ${content.slice(0, 2000)}`);
-  const truncated = finishReason === "length" ? " La réponse a été tronquée par la limite de tokens (finish_reason=length) : augmenter OPENROUTER_MAX_TOKENS." : "";
-  throw new Error(`${label} n'est pas un JSON valide.${truncated}`);
-}
-function extractUrls(text) {
-  return [...new Set((String(text).match(/https?:\/\/[^\s)\]}>"']+/g) || []).map(url => url.replace(/[.,;:!?]+$/, "")))].slice(0, 12);
-}
 
 // ---------------------------------------------------------------------------
 // Client OpenRouter
@@ -494,28 +377,6 @@ async function callOpenRouter(args) {
 // Sources : extraction, classification et vérification Firecrawl
 // ---------------------------------------------------------------------------
 
-function annotationSources(calls) {
-  const items = [];
-  for (const call of calls) {
-    for (const annotation of call.annotations || []) {
-      const citation = annotation.url_citation || annotation;
-      if (citation.url) items.push({ url: citation.url, title: citation.title || "", excerpt: citation.content || "", origin: "openrouter" });
-    }
-  }
-  return [...new Map(items.map(item => [item.url, item])).values()];
-}
-
-function sourceClass(url) {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (/\.gov$|\.gouv\.fr$|\.europa\.eu$|\.int$/.test(host)) return "primary_official";
-    if (/docs\.|learn\.microsoft|developer\.|developers\.|openrouter\.ai|firecrawl\.dev/.test(host)) return "primary_documentation";
-    if (/reuters|apnews|afp|bbc|lemonde|ft\.com/.test(host)) return "reputable_media";
-    return "other";
-  } catch {
-    return "invalid";
-  }
-}
 
 async function scrapeFirecrawl(url, apiKey) {
   if (!apiKey) return { url, accessible: false, reason: "FIRECRAWL_API_KEY absente", sourceClass: sourceClass(url) };
@@ -737,15 +598,11 @@ async function executeJob(job, user, body) {
   // le modèle qui la traitera.
   const autoModel = body.autoModel !== false;
   const task = autoModel ? detectTask(baseRequest) : "manual";
-  // En sélection automatique, les modèles proviennent exclusivement de MODEL_DEFAULTS. L'interface
-  // envoie toujours la valeur de ses trois <select> (masqués mais renseignés) : les prendre en
-  // compte inconditionnellement rendait MODEL_DEFAULTS inopérant, la sélection automatique se
-  // contentant en pratique des valeurs par défaut du formulaire — une tâche « technical » était
-  // ainsi rédigée par Sonnet alors que le tableau documenté prévoit Opus.
-  const models = selectModels(
-    autoModel ? task : "general_analysis",
-    autoModel ? {} : { writer: body.writerModel, auditor: body.auditorModel, arbiter: body.arbiterModel }
-  );
+  const models = resolveModels({
+    autoModel,
+    task,
+    supplied: { writer: body.writerModel, auditor: body.auditorModel, arbiter: body.arbiterModel }
+  });
   const maxCycles = Math.min(5, Math.max(1, Number(body.maxCycles || DEFAULT_MAX_CYCLES)));
   const minScore = Math.min(100, Math.max(50, Number(body.minScore || DEFAULT_MIN_SCORE)));
   const firecrawlEnabled = body.firecrawl !== false;
@@ -918,28 +775,6 @@ const runStore = {
   }
 };
 
-function buildDashboard(runs) {
-  const byModel = {};
-  let cost = 0, prompt = 0, completion = 0;
-  for (const run of runs) {
-    for (const call of run.calls || []) {
-      const key = call.model || "unknown";
-      const usage = call.usage || {};
-      byModel[key] ||= { model: key, calls: 0, cost: 0, promptTokens: 0, completionTokens: 0 };
-      byModel[key].calls += 1;
-      byModel[key].cost += Number(usage.cost || 0);
-      byModel[key].promptTokens += Number(usage.prompt_tokens || 0);
-      byModel[key].completionTokens += Number(usage.completion_tokens || 0);
-      cost += Number(usage.cost || 0);
-      prompt += Number(usage.prompt_tokens || 0);
-      completion += Number(usage.completion_tokens || 0);
-    }
-  }
-  return {
-    totals: { runs: runs.length, cost, promptTokens: prompt, completionTokens: completion, validated: runs.filter(r => String(r.status).startsWith("validated")).length },
-    byModel: Object.values(byModel).sort((a, b) => b.cost - a.cost)
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Routes API
@@ -1000,9 +835,6 @@ app.get("/api/jobs/:id/events", requireAuth, (req, res) => {
 app.get("/api/history", requireAuth, async (req, res) => res.json({ runs: await runStore.listForUser(req.effectiveUser.id) }));
 app.get("/api/dashboard", requireAuth, async (req, res) => res.json(buildDashboard(await runStore.dashboardRows(req.effectiveUser.id))));
 
-function safeName(value) {
-  return String(value || "boucle-contradictoire").replace(/[^a-z0-9_-]+/gi, "-").slice(0, 60);
-}
 
 app.get("/api/runs/:id/export/:format", requireAuth, async (req, res) => {
   const run = await runStore.getOne(req.params.id, req.effectiveUser.id);

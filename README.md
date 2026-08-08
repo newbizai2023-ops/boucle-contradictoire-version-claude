@@ -471,10 +471,37 @@ DEV_BYPASS_AUTH=true
 ## Vérification du code
 
 ```bash
-npm run check
+npm run check   # syntaxe (server.js, public/app.js) puis suite de tests
+npm test        # suite de tests seule
 ```
 
-Cette commande vérifie la syntaxe de `server.js` et de l’interface (`public/app.js`). Aucune génération de code n'a lieu au démarrage.
+Aucune génération de code n'a lieu au démarrage.
+
+### Tests
+
+La suite s'appuie sur le lanceur intégré de Node (`node:test`), sans aucune dépendance
+supplémentaire. Elle couvre la logique sans effet de bord, extraite dans `lib/` précisément pour
+être importable : `server.js` démarre un serveur HTTP au chargement et ne peut donc pas être
+importé par un test.
+
+| Fichier | Couvre |
+| --- | --- |
+| `test/task.test.js` | Classification du domaine (`detectTask`) et cadrage du rédacteur |
+| `test/models.test.js` | Valeurs par défaut par domaine, liste blanche, résolution automatique/manuelle |
+| `test/utils.test.js` | Concurrence bornée, lecture des réponses OpenRouter, parsing JSON tolérant, noms d'export |
+| `test/sources.test.js` | Extraction, dédoublonnage et classification des sources |
+| `test/dashboard.test.js` | Agrégation des coûts et tokens par modèle |
+| `test/interface.test.js` | Cohérence entre `public/` et le serveur (sélecteurs, modèles, formats d'export, extensions) |
+
+`test/interface.test.js` mérite une mention : il compare le vocabulaire du formulaire à celui du
+serveur. C'est la classe de bugs la plus coûteuse du projet, parce qu'elle ne produit aucune erreur
+— la 1.1.7 corrigeait un sélecteur `#firecrawl` inexistant qui rendait `isChecked()` toujours faux
+et désactivait Firecrawl en silence. Rejoué sur la révision fautive, ce test le signale.
+
+Deux tests figent des comportements **constatés mais non souhaitables**, signalés comme tels en
+commentaire : les faux positifs de `detectTask` (« trois » contient « roi », « rapide » contient
+« api ») et l'usurpation de `sourceClass` par sous-domaine (`bbc.exemple.com`). Ils sont là pour
+qu'une correction future soit un changement délibéré et visible, pas une surprise.
 
 ## Limites connues
 
@@ -483,4 +510,4 @@ Cette commande vérifie la syntaxe de `server.js` et de l’interface (`public/a
 - Les scores produits par les modèles ne constituent pas une certification.
 - Les sujets sensibles doivent être revus par un professionnel qualifié.
 - Les tâches SSE actives sont conservées en mémoire, avec une éviction automatique après 2 heures ou au-delà de 500 jobs conservés ; une coupure du processus interrompt une analyse en cours.
-- Aucun test automatisé au-delà de la vérification de syntaxe (`npm run check`) ne couvre la logique métier (sélection des modèles, classification, tableau de bord, exports).
+- La suite de tests (`npm test`) couvre la logique sans effet de bord extraite dans `lib/`, ainsi que la cohérence entre l'interface et le serveur. La boucle d'analyse elle-même (`executeJob`), les appels réseau (OpenRouter, Firecrawl), les routes Express et les exports restent non couverts.

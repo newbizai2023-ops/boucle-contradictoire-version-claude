@@ -15,6 +15,34 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.3.0] - 2026-08-08
+
+### Ajouté
+
+- **Suite de tests** (`npm test`), fondée sur le lanceur intégré de Node (`node:test`), sans aucune
+  dépendance supplémentaire : 51 tests couvrant la classification du domaine, la sélection des
+  modèles et sa liste blanche, la concurrence bornée, le parsing JSON tolérant, l'extraction et la
+  classification des sources, l'agrégation du tableau de bord et les noms de fichiers exportés.
+  `npm run check` enchaîne désormais la vérification de syntaxe puis les tests.
+- **Tests de cohérence entre l'interface et le serveur** (`test/interface.test.js`) : tout
+  identifiant interrogé par `public/app.js` doit exister dans le DOM, tout modèle proposé par le
+  formulaire doit figurer dans la liste blanche, tout format d'export proposé doit être géré par la
+  route d'export, et les extensions du sélecteur de fichiers doivent correspondre à celles
+  acceptées par le serveur. Cette famille de bugs ne produit aucune erreur visible : la 1.1.7
+  corrigeait un sélecteur `#firecrawl` inexistant qui rendait `isChecked()` toujours faux et
+  désactivait Firecrawl en silence. Rejoué sur la révision fautive, le test le signale.
+
+### Modifié
+
+- **La logique sans effet de bord est extraite dans `lib/`** (`task.js`, `models.js`, `utils.js`,
+  `sources.js`, `dashboard.js`), `server.js` conservant le câblage HTTP, la boucle d'analyse et les
+  accès réseau. Cette séparation est ce qui rend les tests possibles : `server.js` démarre un
+  serveur au chargement du module et ne peut donc pas être importé par une suite de tests. Aucun
+  comportement n'est modifié — les fonctions sont déplacées à l'identique.
+- La résolution des modèles d'une analyse est isolée dans `resolveModels()`, afin que la régression
+  corrigée en 1.2.0 (les modèles du formulaire écrasant la sélection automatique) soit couverte par
+  un test plutôt que par une lecture attentive.
+
 ## [1.2.0] - 2026-08-08
 
 ### Corrigé
