@@ -228,6 +228,36 @@ pre { white-space: pre-wrap; word-break: break-word; max-height: 650px; overflow
 .issue.critique, .issue.elevee { border-left-color: var(--danger); }
 .issue.faible { border-left-color: var(--accent); }
 
+/* Raison d'arrêt de la boucle : lue à froid, elle explique pourquoi l'analyse s'est arrêtée là. */
+.stop-reason { margin: -6px 0 16px; padding: 11px 14px; border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, transparent); font-size: .85rem; color: var(--muted); }
+.stop-reason.warn { border-left-color: var(--warn); color: var(--text); }
+
+/* Arbitrage : verdict, les deux dimensions de confiance, puis les constats. */
+.arbitration { border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-top: 16px; }
+.arbitration-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.arbitration-head h3 { margin: 0; }
+.verdict { font-size: .74rem; font-weight: 850; letter-spacing: .04em; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); }
+.verdict.ok { color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--line)); background: color-mix(in srgb, var(--success) 9%, transparent); }
+.verdict.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+.verdict.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, var(--line)); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.verdict.unchecked { color: var(--muted); }
+.confidence-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.confidence { border: 1px solid var(--line); border-radius: 14px; padding: 13px; background: color-mix(in srgb, var(--text) 3%, transparent); }
+.confidence span { display: block; color: var(--muted); font-size: .75rem; margin-bottom: 5px; }
+.confidence strong { font-size: 1.35rem; }
+.confidence strong em { font-size: .8rem; font-style: normal; color: var(--muted); }
+.confidence small { display: block; margin-top: 7px; color: var(--muted); line-height: 1.4; }
+/* Fond de jauge suffisamment marqué pour que la portion non remplie se lise en thème clair : sous
+   ce contraste, une jauge à 40 % et une jauge à 80 % se ressemblent au premier coup d'œil. */
+.confidence-bar { height: 5px; margin-top: 9px; border-radius: 999px; background: color-mix(in srgb, var(--text) 22%, transparent); overflow: hidden; }
+.confidence-bar span { display: block; height: 100%; border-radius: 999px; background: var(--primary); }
+.arbitration-note { margin-top: 12px; font-size: .82rem; color: var(--warn); }
+.arbitration-list { margin-top: 15px; }
+.arbitration-list h4 { margin: 0 0 7px; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.arbitration-list ul { margin: 0; padding-left: 19px; }
+.arbitration-list li { margin-bottom: 7px; line-height: 1.5; }
+.arbitration-list small { display: block; color: var(--muted); margin-top: 2px; }
+
 .source-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 12px; font-size: .85rem; }
 .source-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .source a { display: block; color: var(--accent); word-break: break-all; margin-top: 7px; }
@@ -290,7 +320,7 @@ footer { padding: 26px 0 40px; color: var(--muted); text-align: center; font-siz
   .header-actions { justify-content: flex-start; }
   h1 { font-size: 2rem; }
   .panel { padding: 14px; border-radius: 16px; }
-  .grid, .metrics, .source-grid, .compact-grid { grid-template-columns: minmax(0, 1fr); }
+  .grid, .metrics, .source-grid, .compact-grid, .confidence-grid { grid-template-columns: minmax(0, 1fr); }
   .grid > div:last-child:nth-child(3) { grid-column: auto; }
   textarea { min-height: 230px; }
   .option-card { padding: 12px; }

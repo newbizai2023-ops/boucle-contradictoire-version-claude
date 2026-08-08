@@ -15,6 +15,78 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.6.0] - 2026-08-08
+
+Quatre évolutions de la méthodologie de validation, issues de l'analyse comparée entre la
+méthodologie cible et la boucle réellement implémentée ([`docs/ANALYSE_METHODOLOGIE.md`](docs/ANALYSE_METHODOLOGIE.md)).
+Aucune n'ajoute d'appel de modèle : le coût par analyse est inchangé, et l'arrêt sur stagnation le
+réduit sur les analyses qui plafonnent.
+
+### Ajouté
+
+- **La vérité terrain Firecrawl entre dans la condition d'arrêt.** La porte de validation ne lisait
+  que `sources_non_verifiees`, une liste **écrite par l'auditeur**, alors que l'application dispose
+  d'une mesure réelle : le résultat d'extraction de chaque URL. Un auditeur omettant le champ — ou
+  concluant `VALIDER` avec 95/100 — laissait donc valider un document truffé de liens morts.
+  Désormais, une URL **encore citée par le document** et mesurée injoignable bloque la validation,
+  quel que soit le verdict du modèle.
+
+  Le filtre sur les liens encore cités conditionne la convergence : le cache des sources n'oublie
+  jamais une URL contrôlée, si bien qu'un lien mort supprimé par une correction bloquerait sinon la
+  boucle indéfiniment. Retirer ou remplacer le lien lève le blocage — c'est exactement la correction
+  attendue. Une source non contrôlée (`accessible: null`) ne bloque pas : on ne peut pas reprocher
+  au document une vérification qui n'a pas eu lieu.
+
+- **Arrêt sur stagnation.** Deux audits consécutifs sans progrès ni sur le score, ni sur le nombre
+  d'anomalies sévères, interrompent les cycles restants : le document part à l'arbitrage en l'état,
+  avec une raison d'arrêt explicite. Auparavant une boucle qui plafonnait consommait `maxCycles`
+  intégralement — jusqu'à deux rédactions et deux audits payés pour un score identique. Progresser
+  sur une seule des deux dimensions suffit à justifier un cycle de plus.
+
+- **Deux confiances distinctes dans l'arbitrage** (`confiance_preuves`, `confiance_conclusion`), en
+  plus de la confiance globale et sans appel supplémentaire. Une base factuelle solide peut porter
+  une recommandation fragile : la confiance unique rendait ce cas inexprimable. La confiance globale
+  est normalisée côté serveur — bornée à `[0,100]`, déduite des deux dimensions si le modèle l'omet,
+  et plafonnée par la plus faible d'entre elles. Lorsqu'un plafonnement s'applique, la valeur
+  annoncée reste visible dans `confiance_annoncee` : un ajustement silencieux serait un mensonge de
+  plus, pas une correction.
+
+  Nouvelles colonnes résumées `runs.arbiter_evidence_confidence` et `runs.arbiter_conclusion_confidence`
+  (ajoutées par `ALTER TABLE … IF NOT EXISTS`, sans migration ni rupture sur les analyses existantes).
+
+- **La raison d'arrêt est affichée.** Elle était calculée, enregistrée et historisée depuis la 1.4.0,
+  mais n'apparaissait nulle part : rien ne distinguait à l'écran une boucle arrêtée parce que
+  l'audit validait, une boucle interrompue faute de cycles, et une boucle abandonnée pour stagnation.
+
+- **L'arbitrage est rendu lisible.** Le panneau affichait un vidage JSON brut. Il présente désormais
+  le verdict, les trois confiances avec leur jauge, les motifs, réserves et actions requises — le
+  JSON complet restant accessible dans un bloc dépliable. Même rendu dans le détail d'une analyse
+  historisée.
+
+### Modifié
+
+- **Budget de vérification des sources : quota par cycle plutôt que plafond global saturable.**
+  Jusqu'à 10 URL *nouvelles* par cycle, dans la limite de 20 par analyse (auparavant 10 pour
+  l'analyse entière). Le rédacteur initial citant l'essentiel des liens, le plafond global était
+  atteint dès le premier cycle : les sources ajoutées par une correction n'étaient plus jamais
+  vérifiées — et, `result.sources` valant le contenu du cache, elles ne figuraient même pas dans le
+  rapport, l'historique ni le dossier soumis à l'auditeur. Elles y apparaissent désormais comme non
+  contrôlées, avec leur motif, et restent candidates au cycle suivant.
+
+- Le fil de suivi et la barre de progression citent le modèle arbitre réellement utilisé, au lieu de
+  « Grok » en dur — trompeur dès que l'arbitre est choisi manuellement.
+
+### Vérifié
+
+- Suite `npm test` portée à 117 tests (103 auparavant), dont la porte d'arrêt face à la mesure de
+  source, la convergence après retrait d'un lien mort, la détection de stagnation sur ses deux
+  dimensions et la normalisation des confiances.
+- Simulation de bout en bout sur le serveur réel, OpenRouter et Firecrawl bouchonnés : un audit
+  `VALIDER` à 95/100 ne suffit pas à valider tant qu'une source citée est morte ; l'URL ajoutée par
+  la correction du cycle 1 est bien contrôlée au cycle 2 ; la boucle s'arrête au cycle 2 sur
+  stagnation au lieu d'en consommer 3 ; la confiance globale annoncée à 95 est ramenée à 40 par la
+  confiance dans les preuves, valeur annoncée conservée.
+
 ## [1.5.2] - 2026-08-08
 
 ### Corrigé

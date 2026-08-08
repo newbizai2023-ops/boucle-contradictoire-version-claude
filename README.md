@@ -6,6 +6,95 @@ Application web Node.js qui orchestre une analyse multi-modèles avec recherche 
 
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
 
+## Méthodologie
+
+### Principe
+
+Un document produit par un modèle de langage est fluide par construction et fiable par accident. La
+méthode appliquée ici consiste donc à ne jamais faire reposer la validation sur la qualité apparente
+du texte, mais sur trois choses vérifiables : **l'état réel des sources citées, la reproductibilité
+des calculs, et le désaccord organisé entre des modèles qui n'ont pas le même auteur.**
+
+> **Le modèle aide à trouver, structurer et interpréter les preuves. Il ne constitue jamais lui-même
+> la preuve.**
+
+### Trois rôles, trois fournisseurs
+
+La contradiction est répartie entre trois rôles servis par défaut par trois éditeurs différents —
+rédacteur Anthropic, auditeur OpenAI, arbitre xAI. L'hétérogénéité est délibérée : deux modèles
+issus de la même famille partagent leurs angles morts, et leur accord ne prouve alors rien d'autre
+que leur parenté.
+
+| Rôle | Recherche web | Mission |
+|---|---|---|
+| **Rédacteur** | oui | Produit le document, puis le corrige intégralement à chaque cycle |
+| **Auditeur** | non | Attaque le document, sur pièces uniquement : demande initiale, texte, dossier de sources contrôlées |
+| **Arbitre** | non | Tranche sur la version finale. **Ne réécrit jamais.** |
+
+L'auditeur travaille sans recherche web pour deux raisons : le coût, et l'ancrage — un auditeur qui
+recherche lui-même finit par auditer sa propre recherche plutôt que le document.
+
+### Ce qui est déterministe, ce qui ne l'est pas
+
+C'est la distinction structurante de l'application, et la seule protection réelle contre un modèle
+complaisant. Un score est une opinion ; un code HTTP est un fait.
+
+| Mesuré par du code (opposable) | Produit par un modèle (indicatif) |
+|---|---|
+| Accessibilité réelle de chaque URL citée (Firecrawl) | Score global et scores par critère sur 100 |
+| Classification d'une source par son domaine (`sourceClass`) | Gravité des anomalies, verdict `VALIDER`/`CORRIGER` |
+| Comparaison des cycles entre eux (progrès, stagnation) | Liste `sources_non_verifiees` |
+| Plafonnement de la confiance globale par ses dimensions | Confiances de l'arbitre, décision finale |
+| Quotas de vérification, budget, coût, tokens | Résumés et motifs rédigés |
+
+La condition d'arrêt (`lib/audit.js`) est du code, pas un prompt : elle est testée, elle renvoie ses
+motifs, et elle **oppose la mesure au verdict**. Un auditeur peut conclure `VALIDER` avec 95/100 —
+si une URL encore citée par le document a été mesurée injoignable, la boucle repart quand même.
+
+### Cycles : quand la boucle repart, quand elle s'arrête
+
+Un cycle enchaîne vérification des sources → audit → correction intégrale. Il en faut au moins un et
+au plus cinq (trois par défaut). La boucle s'arrête dans trois cas seulement :
+
+1. **Validation** — tous les critères de la section « Règles de validation » sont satisfaits.
+2. **Stagnation** — deux audits consécutifs sans progrès ni sur le score, ni sur le nombre
+   d'anomalies sévères. Un cycle de plus ne ferait que payer une rédaction et un audit pour le même
+   résultat ; le document part à l'arbitrage en l'état, avec la raison d'arrêt affichée.
+3. **Épuisement** — le nombre maximal de cycles est atteint, motifs de blocage à l'appui.
+
+Dans les trois cas, l'arbitrage a lieu : une analyse qui s'arrête sans avoir convergé produit quand
+même un verdict, des réserves et des actions requises.
+
+### Deux confiances, pas une
+
+L'arbitre rend deux nombres indépendants, parce qu'ils répondent à deux questions différentes :
+
+- **Confiance dans les preuves** — solidité, indépendance, accessibilité et fraîcheur des sources.
+- **Confiance dans la conclusion** — degré auquel la recommandation découle de ces preuves, compte
+  tenu des hypothèses métier et du périmètre retenu.
+
+Une base factuelle solide peut porter une recommandation fragile : c'est le cas courant en conseil,
+et une confiance unique le rendait inexprimable. La confiance globale est ensuite **plafonnée en
+code** par la plus faible des deux — on ne peut pas être plus sûr de sa conclusion que de ce qui la
+soutient — et la valeur initialement annoncée reste affichée lorsqu'un plafonnement s'applique.
+
+### Ce que la méthode ne fait pas
+
+Ces limites sont assumées et documentées, pas ignorées :
+
+- **Pas de cadrage amont.** Le périmètre de l'analyse est celui que le premier brouillon retient ;
+  la suite est corrective. Une question mal cadrée le reste.
+- **Pas d'interprétation indépendante.** Un seul rédacteur : toutes les versions descendent d'une
+  même lecture initiale du sujet.
+- **Pas de recherche de réfutation.** L'auditeur travaillant hors ligne, l'application peut constater
+  qu'une affirmation n'est pas étayée, jamais qu'une source la contredit.
+- **Accessible ≠ probant.** Firecrawl établit qu'une page répond, pas qu'elle soutient l'affirmation
+  qui la cite.
+
+> 📄 [`docs/ANALYSE_METHODOLOGIE.md`](docs/ANALYSE_METHODOLOGIE.md) confronte cette méthodologie à sa
+> cible (`EXPLORE → EVIDENCE → DIVERSIFY → DISAGREE → FALSIFY → DECIDE → EXPLAIN`), détaille forces
+> et faiblesses de chaque côté et classe les évolutions restantes par rapport bénéfice/coût.
+
 ## Architecture
 
 ### Stack technique
@@ -29,11 +118,11 @@ server.js            Câblage HTTP : auth, prompts, boucle contradictoire, route
 lib/                 Logique sans effet de bord, importable par les tests
   task.js             Classification du domaine et cadrage du rédacteur
   models.js           Modèles par défaut, liste blanche, résolution auto/manuelle
-  audit.js            Lecture du verdict d'audit et condition d'arrêt
+  audit.js            Verdict d'audit, condition d'arrêt, stagnation, confiances de l'arbitrage
   persistence.js      Mise en forme des lignes historisées et journaux de fin d'analyse
   analytics.js        Agrégats sur l'ensemble des exécutions
   progress.js         Position des étapes sur la barre de progression
-  sources.js          Extraction, dédoublonnage et classification des sources
+  sources.js          Extraction, dédoublonnage, classification et budget de vérification des sources
   dashboard.js        Agrégation des coûts et tokens par modèle
   utils.js            Concurrence bornée, parsing JSON tolérant, noms d'export
 test/                Suite node:test (npm test)
@@ -56,7 +145,7 @@ package.json / package-lock.json
 Créées automatiquement au démarrage si `DATABASE_URL` est défini (`initDb`) :
 
 - **`users`** : `id` (uuid), `google_id` (unique), `email`, `name`, `picture`, `created_at`, `updated_at`.
-- **`runs`** : `id` (uuid), `user_id` (référence `users`), `request`, `task_type`, `status`, `stop_reason`, `writer_model`, `auditor_model`, `arbiter_model`, `final_document`, `result` (jsonb — objet complet de l'analyse), `total_cost`, `prompt_tokens`, `completion_tokens`, `created_at`, `updated_at`, plus des colonnes résumées calculées à l'écriture : `cycles`, `final_score`, `arbiter_decision`, `arbiter_confidence`, `sources_total`, `sources_accessible`, `document_chars`, `duration_ms`, `firecrawl_enabled`, `error`. Index sur `(user_id, created_at desc)`.
+- **`runs`** : `id` (uuid), `user_id` (référence `users`), `request`, `task_type`, `status`, `stop_reason`, `writer_model`, `auditor_model`, `arbiter_model`, `final_document`, `result` (jsonb — objet complet de l'analyse), `total_cost`, `prompt_tokens`, `completion_tokens`, `created_at`, `updated_at`, plus des colonnes résumées calculées à l'écriture : `cycles`, `final_score`, `arbiter_decision`, `arbiter_confidence`, `arbiter_evidence_confidence`, `arbiter_conclusion_confidence`, `sources_total`, `sources_accessible`, `document_chars`, `duration_ms`, `firecrawl_enabled`, `error`. Index sur `(user_id, created_at desc)`.
 - **`run_sources`**, **`run_audits`**, **`run_calls`** : le détail d'une exécution sous forme requêtable — une ligne par source contrôlée, par cycle d'audit et par appel de modèle. Le jsonb `result` reste la source de vérité pour la relecture intégrale ; ces tables existent pour pouvoir filtrer et agréger sans le désérialiser. Écrites dans la même transaction que la ligne parente, supprimées en cascade avec elle.
 
 Les analyses en échec sont enregistrées comme les autres (`status='error'`, colonne `error` renseignée), avec le document déjà rédigé et les cycles déjà consommés.
@@ -93,10 +182,11 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 3. Classe automatiquement la tâche (`detectTask`) sauf si la sélection des modèles est manuelle.
 4. Sélectionne les modèles rédacteur/auditeur/arbitre selon le type de tâche. En sélection manuelle uniquement, retient ceux fournis par l'utilisateur, contrôlés contre une liste blanche côté serveur (`ALLOWED_MODELS`) — le sélecteur de l'interface n'est pas une protection.
 5. Produit une rédaction initiale avec recherche web OpenRouter.
-6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, 10 sources maximum par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible, sans anomalie critique/élevée, sans source essentielle non vérifiée, sans demande explicite de nouveau cycle et sans verdict `CORRIGER` de l'auditeur ; sinon correction complète du document et nouveau cycle. Les motifs de poursuite sont affichés dans le fil de suivi.
-7. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document.
-8. Historise l'exécution si une base est configurée — ligne de synthèse, détail jsonb et lignes normalisées, en une transaction — puis diffuse l'événement `complete`. Un échec d'écriture est signalé mais ne fait pas échouer l'analyse : le résultat est publié dans tous les cas, et le champ `persisted` indique s'il a bien été enregistré.
-9. Journalise une ligne de fin (`[job] fin …`) résumant statut, cycles, score, arbitrage, sources, appels, tokens, coût, taille du document, durée et historisation. Une analyse interrompue produit une ligne `[job] échec …` et est historisée avec `status='error'`, son document déjà rédigé et ses cycles déjà consommés.
+6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, quota de 10 nouvelles sources par cycle et plafond de 20 par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible, sans anomalie critique/élevée, sans source essentielle non vérifiée, **sans source citée mesurée injoignable**, sans demande explicite de nouveau cycle et sans verdict `CORRIGER` de l'auditeur ; sinon correction complète du document et nouveau cycle. Les motifs de poursuite sont affichés dans le fil de suivi.
+7. Abandonne les cycles restants si deux audits consécutifs ne progressent ni sur le score ni sur le nombre d'anomalies sévères (arrêt sur stagnation) : le document part malgré tout à l'arbitrage.
+8. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document et rend deux confiances distinctes (preuves, conclusion).
+9. Historise l'exécution si une base est configurée — ligne de synthèse, détail jsonb et lignes normalisées, en une transaction — puis diffuse l'événement `complete`. Un échec d'écriture est signalé mais ne fait pas échouer l'analyse : le résultat est publié dans tous les cas, et le champ `persisted` indique s'il a bien été enregistré.
+10. Journalise une ligne de fin (`[job] fin …`) résumant statut, cycles, score, arbitrage, sources, appels, tokens, coût, taille du document, durée et historisation. Une analyse interrompue produit une ligne `[job] échec …` et est historisée avec `status='error'`, son document déjà rédigé et ses cycles déjà consommés.
 
 À chaque étape, un événement est diffusé en SSE pour alimenter le fil de suivi de l'interface.
 
@@ -189,11 +279,13 @@ Extraction et contrôle des URL avec Firecrawl
         ↓
 Audit contradictoire structuré
         ↓
+Porte d'arrêt déterministe (score, anomalies, sources mesurées)
+        ↓
 Correction complète du document
         ↓
-Nouveaux cycles de contrôle
+Nouveaux cycles, jusqu'à validation, stagnation ou épuisement
         ↓
-Arbitrage final indépendant
+Arbitrage final indépendant (deux confiances)
         ↓
 Historisation, consultation et exports
 ```
@@ -266,6 +358,8 @@ La recherche Web OpenRouter reste disponible indépendamment de Firecrawl.
 ## Firecrawl
 
 Firecrawl est utilisé pour ouvrir et extraire le contenu des URL citées. La case « Vérification approfondie des sources via Firecrawl » ne peut être activée que lorsqu’une clé Firecrawl valide est disponible côté Render ou saisie temporairement dans l’interface.
+
+**Quotas.** Chaque cycle peut faire contrôler jusqu'à 10 URL *nouvelles*, dans la limite de 20 par analyse. Le quota par cycle existe parce qu'un plafond uniquement global se saturait au premier cycle : le rédacteur initial cite l'essentiel des liens, et les sources qu'une correction ajoutait ensuite n'étaient plus jamais vérifiées — le document livré pouvait donc citer des pages que personne n'avait ouvertes. Les URL qui dépassent le quota d'un cycle ne sont pas perdues : elles restent candidates au cycle suivant et apparaissent dans le rapport comme non contrôlées, avec leur motif.
 
 Formats acceptés :
 
@@ -404,14 +498,16 @@ Le correcteur reçoit également la demande initiale, le document actuel, l’au
 ### Prompt système de l’arbitre
 
 ```text
-Tu es l'arbitre final indépendant. Tu ne réécris pas le document. Tu évalues la version finale, les audits successifs et l'état réel des sources. Réponds uniquement en JSON valide avec decision, confiance, motifs, reserves et actions_requises.
+Tu es l'arbitre final indépendant. Tu ne réécris pas le document. Tu évalues la version finale, les audits successifs et l'état réel des sources. Réponds uniquement en JSON valide avec decision, confiance, confiance_preuves, confiance_conclusion, motifs, reserves et actions_requises.
 
 RÈGLES DE DÉCISION
 - APPROUVE uniquement si toutes les affirmations déterminantes sont étayées, les calculs reproductibles et aucune anomalie critique ou élevée ne subsiste.
-- APPROUVE_AVEC_RESERVES uniquement pour des limites explicitement circonscrites qui ne changent pas la conclusion principale.
+- APPROUVE_AVEC_RESERVES uniquement pour des limites circonscrites qui ne changent pas la conclusion principale.
 - REJETE si une source essentielle est inaccessible ou contradictoire sans traitement, si un calcul déterminant est faux ou non reproductible, si le document dépasse les preuves, ou si le périmètre demandé n'est pas couvert.
-- La confiance est un entier de 0 à 100 et doit refléter la qualité et l'indépendance des preuves, pas le style du document.
-- Les motifs doivent citer les constats précis des audits ou des sources. Les actions requises doivent être concrètes et vérifiables.
+- Les confiances sont des entiers de 0 à 100 fondés sur la qualité et l'indépendance des preuves, jamais sur le style.
+- Évalue séparément deux dimensions indépendantes. confiance_preuves : solidité, indépendance, accessibilité et fraîcheur des sources qui soutiennent le document. confiance_conclusion : degré auquel la conclusion découle de ces preuves, compte tenu des hypothèses métier, du périmètre retenu et des scénarios non testés. Une base factuelle solide peut porter une recommandation fragile : dans ce cas, confiance_preuves est élevée et confiance_conclusion basse. Justifie tout écart supérieur à 20 points dans les motifs.
+- confiance est la confiance globale ; elle ne peut pas dépasser la plus faible des deux dimensions.
+- Les motifs citent des constats précis des audits ou des sources. Les actions requises sont concrètes et vérifiables.
 ```
 
 ### Format JSON de l’arbitrage
@@ -420,6 +516,8 @@ RÈGLES DE DÉCISION
 {
   "decision": "APPROUVE|APPROUVE_AVEC_RESERVES|REJETE",
   "confiance": 0,
+  "confiance_preuves": 0,
+  "confiance_conclusion": 0,
   "motifs": [
     {
       "constat": "",
@@ -431,6 +529,8 @@ RÈGLES DE DÉCISION
 }
 ```
 
+`confiance` est normalisée côté serveur : bornée à `[0,100]`, déduite des deux dimensions si le modèle l'omet, et plafonnée par la plus faible d'entre elles. Lorsqu'un plafonnement s'applique, la valeur annoncée par l'arbitre est conservée dans `confiance_annoncee` et affichée telle quelle — un ajustement silencieux serait un mensonge de plus, pas une correction.
+
 ## Règles de validation
 
 Un document ne peut être validé automatiquement que si :
@@ -438,11 +538,14 @@ Un document ne peut être validé automatiquement que si :
 - le score global atteint le seuil défini ;
 - aucune anomalie critique ou élevée ne subsiste ;
 - aucune source essentielle n’est non vérifiée ;
+- **aucune URL encore citée par le document n’a été mesurée injoignable** ;
 - aucun nouveau cycle n’est demandé ;
 - l’auditeur ne conclut pas à `CORRIGER` ;
 - l’arbitre rend une décision d’approbation.
 
-Lorsqu’un cycle supplémentaire est engagé, les motifs qui l’imposent sont affichés dans le fil de suivi et conservés dans la raison d’arrêt de l’analyse.
+Le quatrième critère est le seul qui ne dépende d’aucun modèle : il oppose la mesure Firecrawl au verdict de l’auditeur. Il ne porte que sur les liens **encore présents dans le document** — retirer ou remplacer une source morte lève le blocage, ce qui est exactement la correction attendue. Une source non contrôlée (`accessible: null` : Firecrawl désactivé, ou budget de l’analyse épuisé) ne bloque pas : on ne peut pas reprocher au document une vérification qui n’a pas eu lieu.
+
+Lorsqu’un cycle supplémentaire est engagé, les motifs qui l’imposent sont affichés dans le fil de suivi et conservés dans la raison d’arrêt de l’analyse. Celle-ci est désormais affichée sous les métriques du résultat et dans le détail d’une analyse historisée.
 
 ## Scores détaillés
 
@@ -575,8 +678,10 @@ journaux du service sans instrumentation supplémentaire :
 ## Limites connues
 
 - La classification des sources reste heuristique.
-- Firecrawl ne garantit pas l’accès aux pages protégées, payantes ou bloquées.
+- Firecrawl ne garantit pas l’accès aux pages protégées, payantes ou bloquées. Une page joignable n’est pas pour autant probante : le lien entre une affirmation et la source qui la porte n’est apprécié que par l’auditeur, sur un extrait tronqué.
 - Les scores produits par les modèles ne constituent pas une certification.
+- Le cadrage de l’analyse est celui du premier brouillon : il n’existe pas d’étape d’exploration préalable, ni de seconde interprétation indépendante du même dossier de sources.
+- L’auditeur travaillant sans recherche web, l’application peut établir qu’une affirmation n’est pas étayée, jamais qu’une source la contredit.
 - Les sujets sensibles doivent être revus par un professionnel qualifié.
 - Les tâches SSE actives sont conservées en mémoire, avec une éviction automatique après 2 heures ou au-delà de 500 jobs conservés ; une coupure du processus interrompt une analyse en cours.
 - La suite de tests (`npm test`) couvre la logique sans effet de bord extraite dans `lib/`, ainsi que la cohérence entre l'interface et le serveur. La boucle d'analyse elle-même (`executeJob`), les appels réseau (OpenRouter, Firecrawl), les routes Express et les exports restent non couverts.

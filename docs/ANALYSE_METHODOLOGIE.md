@@ -2,8 +2,14 @@
 
 Ce document confronte la méthodologie décrite dans *Boucle Contradictoire — Méthodologie simplifiée*
 (ci-après « la note ») à la méthodologie réellement mise en œuvre par l'application (`server.js`,
-`lib/`, version 1.5.2). Il en dégage les forces, les faiblesses et un chemin de convergence classé
-par rapport coût/bénéfice.
+`lib/`). Il en dégage les forces, les faiblesses et un chemin de convergence classé par rapport
+coût/bénéfice.
+
+> **État de l'analyse.** Les sections 1 à 5 décrivent l'application **telle qu'elle était en 1.5.2**,
+> au moment du diagnostic, et sont conservées en l'état : c'est ce qui rend les corrections
+> lisibles. Les quatre premières actions du §6 ont été livrées en **1.6.0** — les faiblesses §4.3
+> (partiellement), §4.5, §4.7 et §4.9 ne se présentent donc plus comme décrit. Voir « État au
+> 1.6.0 » en fin de §6.
 
 Les références de code renvoient au dépôt à l'état de la branche courante.
 
@@ -301,25 +307,38 @@ de la durée de validité d'un claim `VERIFIED`, ni de la revalidation d'un Evid
 
 ## 6. Chemin de convergence recommandé
 
-Classé par rapport bénéfice/coût. Les étapes 1 à 3 ne coûtent **aucun appel de modèle
-supplémentaire**.
+Classé par rapport bénéfice/coût. Les étapes 1 à 4 ne coûtent **aucun appel de modèle
+supplémentaire** — elles sont **livrées en 1.6.0**.
 
-| # | Action | Coût | Bénéfice | Traite |
-|---|---|---|---|---|
-| 1 | Faire entrer la vérité terrain Firecrawl dans la porte d'arrêt : passer `result.sources` à `shouldStopAfterAudit()` et bloquer sur `accessible === false` pour les sources citées, au lieu de se fier au seul champ `sources_non_verifiees` produit par le modèle. | Nul (code) | Élevé | §4.3 |
-| 2 | Arrêt sur stagnation : comparer `score_global` et le nombre d'anomalies sévères entre cycles ; sortir avec `stopReason = "STAGNATION"` si aucun des deux ne progresse. | Nul (code, économise des appels) | Élevé | §4.7 |
-| 3 | Réserver un quota de vérification par cycle plutôt qu'un budget global saturable, pour que les sources ajoutées par une correction soient contrôlées et remontées. | Nul (code) | Moyen-élevé | §4.5 |
-| 4 | Deux confiances distinctes dans le JSON d'arbitrage : `confiance_preuves` et `confiance_conclusion`. | Nul (un champ de plus dans un appel existant) | Moyen | §4.9 |
-| 5 | Étape `EXPLORE` : un appel court avant la rédaction produisant perspectives et questions de recherche, préfixé au `writerPrompt`. | +1 appel court | Élevé | §4.1, §4.10 |
-| 6 | Passe d'extraction de claims après le brouillon : table `run_claims` (id, type, statut, sources liées) sur le modèle de `lib/persistence.js`, et porte « aucun claim critique non vérifié ». | +1 appel, + schéma | Élevé | §4.1, §4.8, §4.6 |
-| 7 | `FALSIFY` conditionnel : un appel adversarial en `web:true` cherchant explicitement des sources contradictoires, déclenché si anomalies sévères persistantes ou score élevé avec peu de sources primaires accessibles. | +0 à 1 appel | Élevé | §4.4 |
-| 8 | `DIVERSIFY` conditionnel : second rédacteur sur le même dossier, puis matrice de divergence, réservé aux domaines à risque (`legal`, `financial`) ou aux analyses dont le cycle 1 est faible. | +1 à 2 appels | Élevé mais coûteux | §4.2 |
+| # | Action | Coût | Bénéfice | Traite | État |
+|---|---|---|---|---|---|
+| 1 | Faire entrer la vérité terrain Firecrawl dans la porte d'arrêt : passer `result.sources` à `shouldStopAfterAudit()` et bloquer sur `accessible === false` pour les sources citées, au lieu de se fier au seul champ `sources_non_verifiees` produit par le modèle. | Nul (code) | Élevé | §4.3 | ✅ 1.6.0 |
+| 2 | Arrêt sur stagnation : comparer `score_global` et le nombre d'anomalies sévères entre cycles ; sortir avec `stopReason = "STAGNATION"` si aucun des deux ne progresse. | Nul (code, économise des appels) | Élevé | §4.7 | ✅ 1.6.0 |
+| 3 | Réserver un quota de vérification par cycle plutôt qu'un budget global saturable, pour que les sources ajoutées par une correction soient contrôlées et remontées. | Nul (code) | Moyen-élevé | §4.5 | ✅ 1.6.0 |
+| 4 | Deux confiances distinctes dans le JSON d'arbitrage : `confiance_preuves` et `confiance_conclusion`. | Nul (un champ de plus dans un appel existant) | Moyen | §4.9 | ✅ 1.6.0 |
+| 5 | Étape `EXPLORE` : un appel court avant la rédaction produisant perspectives et questions de recherche, préfixé au `writerPrompt`. | +1 appel court | Élevé | §4.1, §4.10 | à faire |
+| 6 | Passe d'extraction de claims après le brouillon : table `run_claims` (id, type, statut, sources liées) sur le modèle de `lib/persistence.js`, et porte « aucun claim critique non vérifié ». | +1 appel, + schéma | Élevé | §4.1, §4.8, §4.6 | à faire |
+| 7 | `FALSIFY` conditionnel : un appel adversarial en `web:true` cherchant explicitement des sources contradictoires, déclenché si anomalies sévères persistantes ou score élevé avec peu de sources primaires accessibles. | +0 à 1 appel | Élevé | §4.4 | à faire |
+| 8 | `DIVERSIFY` conditionnel : second rédacteur sur le même dossier, puis matrice de divergence, réservé aux domaines à risque (`legal`, `financial`) ou aux analyses dont le cycle 1 est faible. | +1 à 2 appels | Élevé mais coûteux | §4.2 | à faire |
 
 Enveloppe résultante : mode standard inchangé à ~5 appels, mode critique à ~10. À comparer aux 20-40
 appels du mode critique de la note — et le principe §18 reste respecté.
 
 Deux exigences de la note sont à écarter en l'état, faute de procédure fiable : l'échelle E0–E5
 telle que définie (§5.1) et les métriques d'amélioration sans corpus de référence (§5.6).
+
+### État au 1.6.0
+
+Les actions 1 à 4 sont implémentées. Les faiblesses §4.3 (porte déterministe alimentée par des
+nombres probabilistes), §4.5 (budget de sources saturé), §4.7 (pas de détection de stagnation) et
+§4.9 (une seule dimension d'incertitude) sont traitées ; elles restent décrites ci-dessus telles
+qu'elles se présentaient avant correction, parce que c'est ce qui rend la correction lisible.
+
+§4.3 n'est traitée qu'à moitié, et volontairement : le score reste un nombre inventé par un modèle.
+Ce qui change, c'est que la porte ne s'en remet plus **uniquement** à lui — une mesure opposable
+(l'accessibilité réelle d'une source citée) peut désormais refuser une validation que le score
+accordait. Les faiblesses structurelles §4.1, §4.2, §4.4, §4.6 et §4.8 demeurent entières : elles
+exigent les actions 5 à 8.
 
 ---
 

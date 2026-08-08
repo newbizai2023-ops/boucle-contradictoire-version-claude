@@ -23,10 +23,10 @@ import { createRequire } from "node:module";
 import { taskGuidance, writerPrompt, detectTask } from "./lib/task.js";
 import { modelLabel, resolveModels } from "./lib/models.js";
 import { mapWithConcurrency, usageOf, extractMessageText, parseJson, safeName } from "./lib/utils.js";
-import { extractUrls, annotationSources, sourceClass } from "./lib/sources.js";
+import { extractUrls, annotationSources, sourceClass, sourceBudget } from "./lib/sources.js";
 import { buildDashboard } from "./lib/dashboard.js";
 import { cycleProgress, PROGRESS_DRAFT, PROGRESS_ARBITER, PROGRESS_COMPLETE } from "./lib/progress.js";
-import { shouldStopAfterAudit } from "./lib/audit.js";
+import { shouldStopAfterAudit, stagnationBetween, normalizeArbitration } from "./lib/audit.js";
 import { runSummary, sourceRows, auditRows, callRows, completionLogLine, failureLogLine } from "./lib/persistence.js";
 import { buildAnalytics, normalizeRun } from "./lib/analytics.js";
 
@@ -76,7 +76,11 @@ const FIRECRAWL_PAGE_TIMEOUT_MS = 45_000;
 const FIRECRAWL_ZERO_DATA_RETENTION = process.env.FIRECRAWL_ZERO_DATA_RETENTION === "true";
 const FIRECRAWL_EXCERPT_CHARS = 12_000;
 const SOURCE_VERIFICATION_CONCURRENCY = 4;
-const MAX_SOURCES_PER_RUN = 10;
+// Plafond de coût sur l'analyse entière, et quota d'URL *nouvelles* par cycle. Le second existe
+// parce qu'un plafond global seul se sature au premier cycle : les sources qu'une correction
+// ajoutait ensuite n'étaient plus jamais contrôlées (voir sourceBudget dans lib/sources.js).
+const MAX_SOURCES_PER_RUN = 20;
+const MAX_SOURCES_PER_CYCLE = 10;
 
 const UPLOAD_MAX_FILES = 3;
 const UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -151,6 +155,8 @@ async function initDb() {
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS final_score integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_decision text;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_confidence integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_evidence_confidence integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_conclusion_confidence integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS sources_total integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS sources_accessible integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS document_chars integer;
@@ -366,13 +372,15 @@ AUDIT OBLIGATOIRE
 - Une affirmation importante non prouvée est au minimum une anomalie élevée ; une source inventée ou un calcul déterminant faux est critique.
 - N'accorde jamais VALIDATION si une anomalie critique ou élevée subsiste, si une source essentielle est inaccessible, ou si un résultat déterminant n'est pas reproductible.`;
 
-const arbiterSystem = `Tu es l'arbitre final indépendant. Tu ne réécris pas le document. Tu évalues la version finale, les audits successifs et l'état réel des sources. Réponds uniquement en JSON valide avec decision, confiance, motifs, reserves et actions_requises.
+const arbiterSystem = `Tu es l'arbitre final indépendant. Tu ne réécris pas le document. Tu évalues la version finale, les audits successifs et l'état réel des sources. Réponds uniquement en JSON valide avec decision, confiance, confiance_preuves, confiance_conclusion, motifs, reserves et actions_requises.
 
 RÈGLES DE DÉCISION
 - APPROUVE uniquement si toutes les affirmations déterminantes sont étayées, les calculs reproductibles et aucune anomalie critique ou élevée ne subsiste.
 - APPROUVE_AVEC_RESERVES uniquement pour des limites circonscrites qui ne changent pas la conclusion principale.
 - REJETE si une source essentielle est inaccessible ou contradictoire sans traitement, si un calcul déterminant est faux ou non reproductible, si le document dépasse les preuves, ou si le périmètre demandé n'est pas couvert.
-- La confiance est un entier de 0 à 100 fondé sur la qualité et l'indépendance des preuves, pas sur le style.
+- Les confiances sont des entiers de 0 à 100 fondés sur la qualité et l'indépendance des preuves, jamais sur le style.
+- Évalue séparément deux dimensions indépendantes. confiance_preuves : solidité, indépendance, accessibilité et fraîcheur des sources qui soutiennent le document. confiance_conclusion : degré auquel la conclusion découle de ces preuves, compte tenu des hypothèses métier, du périmètre retenu et des scénarios non testés. Une base factuelle solide peut porter une recommandation fragile : dans ce cas, confiance_preuves est élevée et confiance_conclusion basse. Justifie tout écart supérieur à 20 points dans les motifs.
+- confiance est la confiance globale ; elle ne peut pas dépasser la plus faible des deux dimensions.
 - Les motifs citent des constats précis des audits ou des sources. Les actions requises sont concrètes et vérifiables.`;
 
 
@@ -488,20 +496,24 @@ async function scrapeFirecrawl(url, apiKey) {
  *  et mémorise chaque extraction dans `cache` pour toute la durée de l'analyse.
  *
  *  Sans cette mémoire, la fonction étant rappelée à chaque cycle, les URL déjà contrôlées étaient
- *  intégralement re-extraites : jusqu'à MAX_SOURCES_PER_RUN appels Firecrawl payants par cycle
+ *  intégralement re-extraites : jusqu'à MAX_SOURCES_PER_CYCLE appels Firecrawl payants par cycle
  *  pour un résultat identique, et une latence multipliée d'autant. Le cache corrige aussi la perte
  *  des sources des cycles précédents : `result.sources` était écrasé à chaque cycle par le seul
  *  lot courant, alors que le rapport final doit présenter toutes les sources contrôlées.
  *
- *  Conséquence voulue : le budget MAX_SOURCES_PER_RUN s'applique désormais à l'analyse entière,
- *  conformément à son nom, et non plus à chaque cycle pris isolément. */
-async function verifySources(document, calls, firecrawlKey, job, cache) {
+ *  `budget` borne les URL *nouvelles* de ce cycle (voir sourceBudget). Celles qui dépassent le
+ *  budget ne sont pas mises en cache — elles restent candidates au cycle suivant — mais sont
+ *  remontées comme non contrôlées avec leur motif : une URL passée sous silence disparaissait du
+ *  rapport, de l'historique et du dossier soumis à l'auditeur, ce qui la rendait indiscernable
+ *  d'une source vérifiée. */
+async function verifySources(document, calls, firecrawlKey, job, cache, budget) {
   const fromAnnotations = annotationSources(calls);
   const fromDocument = extractUrls(document);
   const candidates = [...fromAnnotations, ...fromDocument.map(url => ({ url, origin: "document" }))];
   const unique = [...new Map(candidates.map(source => [source.url, source])).values()];
   const fresh = unique.filter(source => !cache.has(source.url));
-  const pending = fresh.slice(0, Math.max(0, MAX_SOURCES_PER_RUN - cache.size));
+  const pending = fresh.slice(0, budget);
+  const deferred = fresh.slice(pending.length);
   // Diagnostic : permet de distinguer "le rédacteur n'a cité aucune URL exploitable" (candidats=0,
   // comportement normal) de "des URL existent mais scrapeFirecrawl() n'est jamais atteint" (bug),
   // deux symptômes indiscernables depuis les logs [firecrawl] seuls puisqu'ils ne s'émettent que
@@ -509,8 +521,8 @@ async function verifySources(document, calls, firecrawlKey, job, cache) {
   console.info(
     `[firecrawl] ${unique.length} source(s) candidate(s) (${fromAnnotations.length} via annotations OpenRouter, ` +
     `${fromDocument.length} via URL en texte brut du document) : ${pending.length} à extraire, ` +
-    `${unique.length - fresh.length} déjà vérifiée(s), ${fresh.length - pending.length} ignorée(s) ` +
-    `(budget de ${MAX_SOURCES_PER_RUN} sources par analyse atteint)`
+    `${unique.length - fresh.length} déjà vérifiée(s), ${deferred.length} différée(s) ` +
+    `(quota de ${budget} nouvelle(s) source(s) pour ce cycle, plafond de ${MAX_SOURCES_PER_RUN} par analyse)`
   );
   let completed = 0;
   await mapWithConcurrency(pending, SOURCE_VERIFICATION_CONCURRENCY, async source => {
@@ -519,7 +531,10 @@ async function verifySources(document, calls, firecrawlKey, job, cache) {
     completed += 1;
     emit(job, "source", { message: `Vérification de la source ${completed}/${pending.length}`, url: source.url });
   });
-  return [...cache.values()];
+  return [
+    ...cache.values(),
+    ...deferred.map(source => ({ ...source, accessible: null, reason: "Budget de vérification atteint pour cette analyse", sourceClass: sourceClass(source.url) }))
+  ];
 }
 
 function auditPrompt(request, document, verifiedSources, task) {
@@ -676,14 +691,17 @@ async function saveRun(userId, result, { request, task, models, error = null, du
       `INSERT INTO runs (id,user_id,request,task_type,status,stop_reason,writer_model,auditor_model,arbiter_model,
                          final_document,result,total_cost,prompt_tokens,completion_tokens,
                          error,cycles,final_score,arbiter_decision,arbiter_confidence,
+                         arbiter_evidence_confidence,arbiter_conclusion_confidence,
                          sources_total,sources_accessible,document_chars,duration_ms,firecrawl_enabled)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
        ON CONFLICT (id) DO UPDATE SET
          status=EXCLUDED.status, stop_reason=EXCLUDED.stop_reason, final_document=EXCLUDED.final_document,
          result=EXCLUDED.result, total_cost=EXCLUDED.total_cost, prompt_tokens=EXCLUDED.prompt_tokens,
          completion_tokens=EXCLUDED.completion_tokens, error=EXCLUDED.error, cycles=EXCLUDED.cycles,
          final_score=EXCLUDED.final_score, arbiter_decision=EXCLUDED.arbiter_decision,
-         arbiter_confidence=EXCLUDED.arbiter_confidence, sources_total=EXCLUDED.sources_total,
+         arbiter_confidence=EXCLUDED.arbiter_confidence,
+         arbiter_evidence_confidence=EXCLUDED.arbiter_evidence_confidence,
+         arbiter_conclusion_confidence=EXCLUDED.arbiter_conclusion_confidence, sources_total=EXCLUDED.sources_total,
          sources_accessible=EXCLUDED.sources_accessible, document_chars=EXCLUDED.document_chars,
          duration_ms=EXCLUDED.duration_ms, firecrawl_enabled=EXCLUDED.firecrawl_enabled, updated_at=NOW()`,
       [
@@ -692,6 +710,7 @@ async function saveRun(userId, result, { request, task, models, error = null, du
         result.finalDocument ?? null, JSON.stringify(result), result.totalCost,
         summary.promptTokens, summary.completionTokens,
         error, summary.cycles, summary.finalScore, summary.arbiterDecision, summary.arbiterConfidence,
+        summary.arbiterEvidenceConfidence, summary.arbiterConclusionConfidence,
         summary.sourcesTotal, summary.sourcesAccessible, summary.documentChars,
         durationMs, result.firecrawlEnabled ?? null
       ]
@@ -786,15 +805,16 @@ async function executeJob(job, user, body) {
 
   for (let cycle = 1; cycle <= maxCycles; cycle += 1) {
     emit(job, "progress", { step: "sources", cycle, percent: cycleProgress("sources", cycle, maxCycles), message: `Cycle ${cycle} : vérification stricte des sources` });
+    const budget = sourceBudget(sourceCache.size, { perCycle: MAX_SOURCES_PER_CYCLE, perRun: MAX_SOURCES_PER_RUN });
     const verified = firecrawlEnabled
-      ? await verifySources(document, result.calls, firecrawlApiKey, job, sourceCache)
+      ? await verifySources(document, result.calls, firecrawlApiKey, job, sourceCache, budget)
       : annotationSources(result.calls).map(source => ({ ...source, accessible: null, reason: "Vérification Firecrawl désactivée", sourceClass: sourceClass(source.url) }));
     result.sources = verified;
     emit(job, "insight", {
       category: "sources",
       cycle,
       message: `Sources : ${verified.filter(s => s.accessible === true).length} accessibles, ${verified.filter(s => s.accessible === false).length} inaccessibles, ${verified.filter(s => s.accessible === null).length} non contrôlées.`,
-      details: { total: verified.length }
+      details: { total: verified.length, quotaDuCycle: budget, plafondParAnalyse: MAX_SOURCES_PER_RUN }
     });
 
     emit(job, "progress", { step: "audit", cycle, percent: cycleProgress("audit", cycle, maxCycles), message: `Cycle ${cycle} : audit détaillé` });
@@ -803,7 +823,10 @@ async function executeJob(job, user, body) {
     result.audits.push({ cycle, ...audit });
     result.calls.push({ role: "audit", ...auditCall });
     result.totalCost += auditCall.usage.cost;
-    const verdict = shouldStopAfterAudit(audit, minScore);
+    // La condition d'arrêt reçoit le document et les sources réellement contrôlées : c'est ce qui
+    // lui permet d'opposer la mesure Firecrawl au verdict du modèle plutôt que de s'en remettre à
+    // la seule liste `sources_non_verifiees` que celui-ci veut bien renseigner.
+    const verdict = shouldStopAfterAudit(audit, minScore, { sources: verified, document });
     emit(job, "audit", { cycle, score: audit.score_global, scores: audit.scores, anomalies: audit.anomalies?.length || 0 });
     emit(job, "insight", {
       category: "audit",
@@ -811,10 +834,29 @@ async function executeJob(job, user, body) {
       message: `Cycle ${cycle} : score ${audit.score_global}/100, ${audit.anomalies?.length || 0} anomalie(s). ${audit.resume || ""}`,
       // Les motifs rendent lisible la décision de poursuivre : sans eux, un cycle supplémentaire
       // ne se distingue pas d'un arrêt, et l'utilisateur ne peut pas savoir ce qui bloque.
-      details: { scores: audit.scores, decision: audit.decision, motifs: verdict.motifs }
+      details: { scores: audit.scores, decision: audit.decision, motifs: verdict.motifs, sourcesInjoignablesCitees: verdict.injoignables }
     });
 
     if (verdict.stop) break;
+
+    // Un cycle de plus ne se justifie que s'il peut encore améliorer quelque chose. Deux audits
+    // consécutifs sans progrès ni sur le score ni sur les anomalies sévères signalent une boucle
+    // qui plafonne : poursuivre ne ferait que payer une rédaction et un audit de plus pour le même
+    // résultat. Le document déjà produit part quand même à l'arbitrage.
+    const stagnation = stagnationBetween(result.audits.at(-2), result.audits.at(-1));
+    if (stagnation) {
+      result.stopReason = `Arrêt sur stagnation : aucun progrès entre les cycles ${cycle - 1} et ${cycle} ` +
+        `(score ${stagnation.avant.score} → ${stagnation.apres.score}, anomalies sévères ` +
+        `${stagnation.avant.severes} → ${stagnation.apres.severes}) ; ${verdict.motifs.join(" ; ")}.`;
+      emit(job, "insight", {
+        category: "audit",
+        cycle,
+        message: `Cycle ${cycle} : aucun progrès depuis le cycle ${cycle - 1}. Les cycles restants sont abandonnés, le document part à l'arbitrage en l'état.`,
+        details: { avant: stagnation.avant, apres: stagnation.apres, motifs: verdict.motifs }
+      });
+      break;
+    }
+
     if (cycle === maxCycles) {
       result.stopReason = `Nombre maximal de cycles atteint avant arbitrage (${verdict.motifs.join(" ; ")}).`;
       break;
@@ -843,7 +885,7 @@ ${JSON.stringify(verified.map(s => ({ url: s.url, accessible: s.accessible, titl
     result.totalCost += correction.usage.cost;
   }
 
-  emit(job, "progress", { step: "arbiter", percent: PROGRESS_ARBITER, message: "Arbitrage final indépendant par Grok" });
+  emit(job, "progress", { step: "arbiter", percent: PROGRESS_ARBITER, message: `Arbitrage final indépendant par ${modelLabel(models.arbiter)}` });
   const arbiterPrompt = `DEMANDE:
 ${request}
 
@@ -856,13 +898,18 @@ ${JSON.stringify(result.audits, null, 2)}
 SOURCES:
 ${JSON.stringify(result.sources.map(s => ({ url: s.url, accessible: s.accessible, sourceClass: s.sourceClass })), null, 2)}
 
-JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":0,"motifs":[],"reserves":[],"actions_requises":[]}`;
+JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":0,"confiance_preuves":0,"confiance_conclusion":0,"motifs":[],"reserves":[],"actions_requises":[]}`;
   const arbiterCall = await callOpenRouter({ apiKey, model: models.arbiter, system: arbiterSystem, user: arbiterPrompt, json: true, web: false });
-  const arbitration = parseJson(arbiterCall.content, "L'arbitrage", arbiterCall.finishReason);
+  const arbitration = normalizeArbitration(parseJson(arbiterCall.content, "L'arbitrage", arbiterCall.finishReason));
   result.calls.push({ role: "arbitrage", ...arbiterCall });
   result.totalCost += arbiterCall.usage.cost;
   result.arbitration = arbitration;
-  emit(job, "insight", { category: "arbitration", message: `Arbitrage Grok : ${arbitration.decision} avec une confiance de ${arbitration.confiance ?? "—"}/100.`, details: { motifs: arbitration.motifs, reserves: arbitration.reserves } });
+  emit(job, "insight", {
+    category: "arbitration",
+    message: `Arbitrage ${modelLabel(models.arbiter)} : ${arbitration.decision} — confiance globale ${arbitration.confiance ?? "—"}/100 ` +
+      `(preuves ${arbitration.confiance_preuves ?? "—"}/100, conclusion ${arbitration.confiance_conclusion ?? "—"}/100).`,
+    details: { motifs: arbitration.motifs, reserves: arbitration.reserves, confiance_annoncee: arbitration.confiance_annoncee }
+  });
 
   result.finalDocument = document;
   result.status = arbitration.decision === "APPROUVE" ? "validated" : arbitration.decision === "APPROUVE_AVEC_RESERVES" ? "validated_with_reservations" : "rejected_by_arbiter";
