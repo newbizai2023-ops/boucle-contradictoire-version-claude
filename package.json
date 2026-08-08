@@ -2,7 +2,7 @@
   "name": "boucle-contradictoire",
   "version": "1.8.0",
   "private": true,
-  "description": "Boucle contradictoire multi-modèles avec recherche web, documents, arbitrage, historique et exports",
+  "description": "Analyse multi-modèles fondée sur les preuves : cadrage, second avis, audit, réfutation adversariale, arbitrage, sources et citations contrôlées, historique requêtable et exports",
   "type": "module",
   "scripts": {
     "start": "node server.js",

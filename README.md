@@ -1,6 +1,6 @@
 # Boucle Contradictoire
 
-Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historisation PostgreSQL requêtable, exports et consultation des données de toutes les analyses.
+Application web Node.js qui orchestre une analyse multi-modèles fondée sur les preuves : cadrage préalable, rédaction avec recherche Web, second avis indépendant, audit contradictoire avec inventaire des affirmations, réfutation adversariale et arbitrage. Les sources citées sont réellement ouvertes, les citations vérifiées dans la page, et chaque affirmation reliée à ce qui l'établit. Historisation PostgreSQL requêtable, exports et consultation des données de toutes les analyses.
 
 **Version courante** : voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
 
