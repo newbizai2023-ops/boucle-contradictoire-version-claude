@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 // Configuration
 // ---------------------------------------------------------------------------
 
-const RELEASE = "3.2.0";
+const RELEASE = "1.0.0";
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";

@@ -1,40 +1,35 @@
-# Boucle Contradictoire (version corrigée)
+# Boucle Contradictoire
 
 Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historique PostgreSQL, exports et tableau de bord de consommation.
 
-**Version actuelle : 3.2.0**
+**Version actuelle : 1.0.0**
 
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
 
-## À propos de cette version
+## Sécurité et fiabilité
 
-Ce dépôt est un fork corrigé de [`newbizai2023-ops/Boucle-Contradictoire`](https://github.com/newbizai2023-ops/Boucle-Contradictoire), à la suite d'une revue de code. Le fonctionnement applicatif est inchangé ; les corrections suivantes ont été appliquées :
+- **Code source direct** : `server.js` et `public/*` sont le code réellement exécuté par l'application, sans étape de génération ni de réécriture au démarrage.
+- **Éviction périodique des tâches en mémoire** (`sweepJobs`) : borne la durée de rétention (2 heures) et le nombre maximal de jobs conservés (500), pour empêcher toute croissance mémoire illimitée du processus.
+- **Vérification TLS Postgres activée par défaut** en production, avec une option `DATABASE_CA_CERT` pour une autorité privée.
+- **Garde-fou `DEV_BYPASS_AUTH`** : le serveur refuse de démarrer si ce contournement d'authentification est combiné à `NODE_ENV=production`.
+- **Vérification des sources parallélisée**, avec une concurrence bornée, pour réduire la latence perçue lors des cycles d'audit.
+- **En-têtes de sécurité (`helmet`) et limitation de débit (`express-rate-limit`)**, notamment sur la création d'analyses (`POST /api/jobs`), pour limiter les abus et l'emballement des coûts.
+- **Builds reproductibles** : `package-lock.json` commité, installation via `npm ci` au build du conteneur (pas au démarrage).
 
-1. **Suppression de la chaîne de 15 scripts de correctifs.** L'ancien dépôt reconstruisait `server.js` et `public/*` à chaque démarrage (`npm run prepare:runtime`) via 15 scripts appliquant des remplacements de texte successifs sur les fichiers commités. Le code livré ici est directement le code source réel — plus de génération au démarrage, plus de working tree modifié par un simple `npm start`.
-2. **Correction de la fuite mémoire des jobs.** Le `Map` des tâches en mémoire n'était jamais purgé ; une éviction périodique (`sweepJobs`) borne désormais la durée de rétention et le nombre maximal de jobs conservés.
-3. **Vérification TLS Postgres activée par défaut** en production (au lieu de `rejectUnauthorized:false`), avec une option `DATABASE_CA_CERT` pour une autorité privée.
-4. **Garde-fou `DEV_BYPASS_AUTH`** : le serveur refuse de démarrer si ce contournement d'authentification est combiné à `NODE_ENV=production`.
-5. **Vérification des sources parallélisée** (au lieu d'un traitement séquentiel), avec une concurrence bornée, pour réduire la latence perçue lors des cycles d'audit.
-6. **En-têtes de sécurité (`helmet`) et limitation de débit (`express-rate-limit`)** ajoutés, notamment sur la création d'analyses (`POST /api/jobs`), pour limiter les abus et l'emballement des coûts.
-7. **Dockerfile corrigé** : la préparation du code s'effectue au build (elle n'existe plus, le code étant déjà final), plus au démarrage du conteneur ; ajout d'un `.dockerignore` et d'un `package-lock.json` commité pour des builds reproductibles (`npm ci`).
-8. **Modèles par défaut réalignés sur la documentation** : le rédacteur utilise à nouveau Claude Opus pour les domaines technique/financier/juridique, comme indiqué dans le tableau ci-dessous (un script de test avait silencieusement basculé ces domaines vers Sonnet dans le dépôt d'origine).
+## Interface
 
-### Corrections d'ergonomie (interface)
-
-À la suite d'une revue ergonomique de l'interface (`public/*`) :
-
-- Contraste du bouton principal « Lancer la boucle » remonté au-dessus du seuil WCAG AA (le dégradé d'origine tombait à ~3.7:1 avec le texte blanc).
+- Contraste du bouton principal « Lancer la boucle » conforme au seuil WCAG AA.
 - Badge « Non configurée » d'OpenRouter distingué de celui de Firecrawl (rouge/bloquant vs ambre/optionnel) : sans clé OpenRouter aucune analyse n'est possible, alors que Firecrawl n'est qu'une amélioration.
-- Ajout d'un bloc « Comment ça marche » visible avant connexion, et réduction de la hauteur excessive du panneau de résultats vide.
-- Les sélecteurs de modèles (Rédacteur/Auditeur/Arbitre) sont masqués entièrement en mode automatique, au lieu d'être grisés tout en occupant de l'espace.
-- **Fusion complète des deux fils de suivi en un seul** (« Suivi de l’analyse ») : chaque étape (rédaction, sources, audit, arbitrage) apparaît une seule fois, d'abord comme « en cours » puis enrichie en place avec son constat détaillé (dépliable), au lieu de produire deux entrées séparées et redondantes dans deux panneaux différents. Le serveur transmet désormais un `cycle` explicite sur les événements `progress`/`insight` pour permettre cet appariement fiable côté client.
-- **Correction d'un bug de rendu `hidden`** découvert pendant les tests de la fusion ci-dessus : `.empty{display:grid}` et `.grid{display:grid}` neutralisaient silencieusement l'attribut `hidden` (même spécificité CSS) — le panneau vide restait visible pendant une analyse en cours, et les sélecteurs de modèles masqués par la correction précédente ne l'étaient en réalité jamais visuellement. Un `[hidden]{display:none!important}` global corrige ce problème pour tous les éléments concernés, présents ou futurs.
-- Ajout de textes d'aide sous « Cycles maximum » / « Score cible » et d'une indication de durée typique près du bouton d'envoi.
-- Fusion des media queries dupliquées (950px/1200px) en un seul point de bascule responsive.
+- Bloc « Comment ça marche » visible avant connexion.
+- Sélecteurs de modèles (Rédacteur/Auditeur/Arbitre) masqués entièrement en mode automatique, au lieu d'être grisés tout en occupant de l'espace.
+- **Fil de suivi unique** (« Suivi de l'analyse ») : chaque étape (rédaction, sources, audit, arbitrage) apparaît une seule fois, d'abord comme « en cours » puis enrichie en place avec son constat détaillé (dépliable), au lieu de produire deux entrées séparées et redondantes dans deux panneaux différents. Le serveur transmet un `cycle` explicite sur les événements `progress`/`insight` pour permettre cet appariement fiable côté client.
+- Règle CSS globale `[hidden]{display:none!important}` : garantit que l'attribut `hidden` prime toujours sur les classes de mise en page (`.empty`, `.grid`), pour tous les éléments concernés, présents ou futurs.
+- Textes d'aide sous « Cycles maximum » / « Score cible » et indication de durée typique près du bouton d'envoi.
+- Point de bascule responsive unique (au lieu de media queries dupliquées).
 - Libellés de modèles raccourcis pour éviter la troncature dans les listes déroulantes sur mobile.
 - Indice visuel de défilement sur la barre d'onglets quand elle déborde (mobile).
 - Focus clavier harmonisé sur les boutons et onglets (même anneau que les champs de formulaire).
-- Thème clair ajouté, activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
+- Thème clair activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
 - Lien rapide « Historique ↓ » dans l'en-tête pour un accès direct sans défiler toute la page.
 
 ## Déploiement
@@ -44,7 +39,7 @@ Ce dépôt est un fork corrigé de [`newbizai2023-ops/Boucle-Contradictoire`](ht
 - Runtime : Node.js 20+
 - Base : PostgreSQL
 
-Ce fork n'est pas déployé sur une instance Render dédiée ; adapter `render.yaml` (nom de service, région) avant tout déploiement séparé de l'application d'origine.
+Adapter `render.yaml` (nom de service, région) à l'environnement cible avant tout déploiement.
 
 Variables Render attendues :
 
