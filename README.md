@@ -77,7 +77,7 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 3. Classe automatiquement la tâche (`detectTask`) sauf si la sélection des modèles est manuelle.
 4. Sélectionne les modèles rédacteur/auditeur/arbitre selon le type de tâche, ou retient ceux fournis par l'utilisateur (validés par une expression régulière stricte).
 5. Produit une rédaction initiale avec recherche web OpenRouter.
-6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, 10 sources maximum par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible sans anomalie critique/élevée ni source essentielle non vérifiée, sinon correction complète du document et nouveau cycle.
+6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, 10 sources maximum par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible, sans anomalie critique/élevée, sans source essentielle non vérifiée, sans demande explicite de nouveau cycle et sans verdict `CORRIGER` de l'auditeur ; sinon correction complète du document et nouveau cycle. Les motifs de poursuite sont affichés dans le fil de suivi.
 7. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document.
 8. Enregistre le résultat en base (si configurée) et diffuse l'événement `complete`.
 
@@ -491,6 +491,7 @@ importé par un test.
 | `test/utils.test.js` | Concurrence bornée, lecture des réponses OpenRouter, parsing JSON tolérant, noms d'export |
 | `test/sources.test.js` | Extraction, dédoublonnage et classification des sources |
 | `test/dashboard.test.js` | Agrégation des coûts et tokens par modèle |
+| `test/audit.test.js` | Lecture du verdict d'audit et condition d'arrêt de la boucle |
 | `test/progress.test.js` | Monotonie et bornes de la barre de progression |
 | `test/interface.test.js` | Cohérence entre `public/` et le serveur (sélecteurs, modèles, formats d'export, extensions, limites d'upload) |
 

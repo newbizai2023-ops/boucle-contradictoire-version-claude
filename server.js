@@ -26,6 +26,7 @@ import { mapWithConcurrency, usageOf, extractMessageText, parseJson, safeName } 
 import { extractUrls, annotationSources, sourceClass } from "./lib/sources.js";
 import { buildDashboard } from "./lib/dashboard.js";
 import { cycleProgress, PROGRESS_DRAFT, PROGRESS_ARBITER, PROGRESS_COMPLETE } from "./lib/progress.js";
+import { shouldStopAfterAudit } from "./lib/audit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -661,14 +662,20 @@ async function executeJob(job, user, body) {
     result.audits.push({ cycle, ...audit });
     result.calls.push({ role: "audit", ...auditCall });
     result.totalCost += auditCall.usage.cost;
+    const verdict = shouldStopAfterAudit(audit, minScore);
     emit(job, "audit", { cycle, score: audit.score_global, scores: audit.scores, anomalies: audit.anomalies?.length || 0 });
-    emit(job, "insight", { category: "audit", cycle, message: `Cycle ${cycle} : score ${audit.score_global}/100, ${audit.anomalies?.length || 0} anomalie(s). ${audit.resume || ""}`, details: { scores: audit.scores, decision: audit.decision } });
+    emit(job, "insight", {
+      category: "audit",
+      cycle,
+      message: `Cycle ${cycle} : score ${audit.score_global}/100, ${audit.anomalies?.length || 0} anomalie(s). ${audit.resume || ""}`,
+      // Les motifs rendent lisible la décision de poursuivre : sans eux, un cycle supplémentaire
+      // ne se distingue pas d'un arrêt, et l'utilisateur ne peut pas savoir ce qui bloque.
+      details: { scores: audit.scores, decision: audit.decision, motifs: verdict.motifs }
+    });
 
-    const severe = (audit.anomalies || []).some(a => ["critique", "elevee"].includes(String(a.gravite || "").toLowerCase()));
-    const inaccessible = (audit.sources_non_verifiees || []).length > 0;
-    if (Number(audit.score_global || 0) >= minScore && !severe && !inaccessible && audit.nouveau_cycle_requis !== true) break;
+    if (verdict.stop) break;
     if (cycle === maxCycles) {
-      result.stopReason = "Nombre maximal de cycles atteint avant arbitrage.";
+      result.stopReason = `Nombre maximal de cycles atteint avant arbitrage (${verdict.motifs.join(" ; ")}).`;
       break;
     }
 

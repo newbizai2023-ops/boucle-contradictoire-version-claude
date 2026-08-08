@@ -15,6 +15,37 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.4.0] - 2026-08-08
+
+### Corrigé
+
+- **Le verdict explicite de l'auditeur était ignoré par la condition d'arrêt.** Le contrat JSON
+  impose un champ `decision` valant `VALIDER` ou `CORRIGER`, le prompt d'auditeur détaille
+  longuement quand refuser la validation, et la valeur produite était affichée dans le fil de
+  suivi — mais la boucle ne lisait que `score_global`, la gravité des anomalies et
+  `nouveau_cycle_requis`. Un auditeur concluant `CORRIGER` avec un score de 95 et aucune anomalie
+  sévère voyait la boucle s'arrêter contre son avis. Vérifié de bout en bout : à chiffres
+  identiques, un audit `VALIDER` s'arrête après un cycle, un audit `CORRIGER` en exécute trois.
+
+- **Les anomalies de gravité « élevée » écrites avec accents n'étaient pas reconnues comme
+  bloquantes.** La comparaison se faisait par simple mise en minuscules contre `["critique",
+  "elevee"]`. Le contrat JSON demande bien `elevee` sans accent, mais les modèles écrivent
+  naturellement « élevée » — l'orthographe qu'emploie le prompt d'auditeur lui-même. Une anomalie
+  élevée accentuée passait donc pour non bloquante et laissait valider un document que l'auditeur
+  jugeait insuffisant : exactement le contraire de la règle « une affirmation importante non
+  prouvée est au minimum une anomalie élevée ». La comparaison ignore désormais casse et accents.
+
+### Modifié
+
+- La condition d'arrêt est isolée dans `shouldStopAfterAudit()` (`lib/audit.js`) et renvoie les
+  **motifs** de poursuite plutôt qu'un simple booléen. Ils apparaissent dans le fil de suivi et
+  dans la raison d'arrêt enregistrée : « un cycle de plus » devient une décision lisible
+  (« score 72/100 inférieur au seuil de 90 ; 2 anomalie(s) critique(s) ou élevée(s) ») au lieu
+  d'un comportement opaque.
+- Un champ `decision` absent ou inintelligible reste neutre et ne bloque pas à lui seul : sans
+  cette réserve, un modèle omettant le champ ferait consommer tous les cycles à chaque analyse, en
+  silence.
+
 ## [1.3.2] - 2026-08-08
 
 ### Corrigé
