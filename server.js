@@ -25,9 +25,13 @@ import { modelLabel, resolveModels } from "./lib/models.js";
 import { mapWithConcurrency, usageOf, extractMessageText, parseJson, safeName } from "./lib/utils.js";
 import { extractUrls, annotationSources, sourceClass, sourceBudget } from "./lib/sources.js";
 import { buildDashboard } from "./lib/dashboard.js";
-import { cycleProgress, PROGRESS_DRAFT, PROGRESS_ARBITER, PROGRESS_COMPLETE } from "./lib/progress.js";
+import { cycleProgress, PROGRESS_EXPLORE, PROGRESS_DRAFT, PROGRESS_CHALLENGER, PROGRESS_DIVERGENCE, PROGRESS_FALSIFY, PROGRESS_ARBITER, PROGRESS_COMPLETE } from "./lib/progress.js";
 import { shouldStopAfterAudit, stagnationBetween, normalizeArbitration } from "./lib/audit.js";
-import { runSummary, sourceRows, auditRows, callRows, completionLogLine, failureLogLine } from "./lib/persistence.js";
+import { explorerSystem, explorePrompt, normalizeExploration, exploreBrief, exploreSummary } from "./lib/explore.js";
+import { normalizeClaims, claimRegressions, claimStats, claimsBrief } from "./lib/claims.js";
+import { falsifierSystem, shouldFalsify, falsifyPrompt, normalizeFalsification, falsificationUrls, confirmedContradictions, falsifySummary } from "./lib/falsify.js";
+import { shouldDiversify, divergenceSystem, divergencePrompt, normalizeDivergence, divergenceBrief, divergenceSummary } from "./lib/diverge.js";
+import { runSummary, sourceRows, auditRows, claimRows, callRows, completionLogLine, failureLogLine } from "./lib/persistence.js";
 import { buildAnalytics, normalizeRun } from "./lib/analytics.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -157,6 +161,8 @@ async function initDb() {
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_confidence integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_evidence_confidence integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS arbiter_conclusion_confidence integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS claims_total integer;
+    ALTER TABLE runs ADD COLUMN IF NOT EXISTS claims_critical_unverified integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS sources_total integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS sources_accessible integer;
     ALTER TABLE runs ADD COLUMN IF NOT EXISTS document_chars integer;
@@ -195,6 +201,24 @@ async function initDb() {
       created_at timestamptz DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS run_audits_run_idx ON run_audits(run_id, cycle);
+
+    -- Une ligne par affirmation inventoriee, a chaque cycle : le niveau de tracabilite qui manquait
+    -- entre le document et la source. Permet de repondre a "sur quoi repose cette recommandation"
+    -- et "si cette source tombe, qu'est-ce qui devient faux".
+    CREATE TABLE IF NOT EXISTS run_claims (
+      id bigserial PRIMARY KEY,
+      run_id uuid NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      cycle integer NOT NULL,
+      claim_id text,
+      type text,
+      affirmation text NOT NULL,
+      statut text,
+      critique boolean DEFAULT false,
+      sources jsonb NOT NULL DEFAULT '[]'::jsonb,
+      created_at timestamptz DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS run_claims_run_idx ON run_claims(run_id, cycle);
+    CREATE INDEX IF NOT EXISTS run_claims_statut_idx ON run_claims(statut) WHERE critique;
 
     CREATE TABLE IF NOT EXISTS run_calls (
       id bigserial PRIMARY KEY,
@@ -370,7 +394,14 @@ AUDIT OBLIGATOIRE
 - Identifie contradictions internes et divergences entre sources.
 - Pour les sujets médicaux, juridiques ou financiers, contrôle périmètre, population ou juridiction, limites et avertissements nécessaires.
 - Une affirmation importante non prouvée est au minimum une anomalie élevée ; une source inventée ou un calcul déterminant faux est critique.
-- N'accorde jamais VALIDATION si une anomalie critique ou élevée subsiste, si une source essentielle est inaccessible, ou si un résultat déterminant n'est pas reproductible.`;
+- N'accorde jamais VALIDATION si une anomalie critique ou élevée subsiste, si une source essentielle est inaccessible, ou si un résultat déterminant n'est pas reproductible.
+
+INVENTAIRE DES AFFIRMATIONS
+- Restitue dans "claims" les affirmations matérielles du document, une par entrée : c'est le travail que tu fais déjà pour les auditer, rendu explicite.
+- Marque critique=true pour toute affirmation dont dépend la conclusion : si elle tombe, la recommandation tombe. Sois strict, une analyse ne repose pas sur trente affirmations déterminantes.
+- statut vaut VERIFIE uniquement si une source réellement accessible du dossier l'établit ; NON_VERIFIE si rien ne l'établit ; CONTREDIT si une source du dossier la dément.
+- Rattache à chaque affirmation les URL du dossier qui la portent. Une affirmation VERIFIE sans URL est une contradiction : c'est alors NON_VERIFIE.
+- Quarante affirmations au maximum, les plus structurantes. N'y fais pas figurer le style, le plan ni les formules de transition.`;
 
 const arbiterSystem = `Tu es l'arbitre final indépendant. Tu ne réécris pas le document. Tu évalues la version finale, les audits successifs et l'état réel des sources. Réponds uniquement en JSON valide avec decision, confiance, confiance_preuves, confiance_conclusion, motifs, reserves et actions_requises.
 
@@ -381,6 +412,8 @@ RÈGLES DE DÉCISION
 - Les confiances sont des entiers de 0 à 100 fondés sur la qualité et l'indépendance des preuves, jamais sur le style.
 - Évalue séparément deux dimensions indépendantes. confiance_preuves : solidité, indépendance, accessibilité et fraîcheur des sources qui soutiennent le document. confiance_conclusion : degré auquel la conclusion découle de ces preuves, compte tenu des hypothèses métier, du périmètre retenu et des scénarios non testés. Une base factuelle solide peut porter une recommandation fragile : dans ce cas, confiance_preuves est élevée et confiance_conclusion basse. Justifie tout écart supérieur à 20 points dans les motifs.
 - confiance est la confiance globale ; elle ne peut pas dépasser la plus faible des deux dimensions.
+- Une recherche adversariale a pu être menée contre le document. Une contradiction qu'elle appuie sur une source accessible interdit APPROUVE : traite-la, ou REJETE. Un verdict CONFIRME de cette recherche n'est en revanche pas une preuve d'exactitude — il signifie seulement que la réfutation n'a rien trouvé.
+- Une comparaison avec une analyse indépendante a pu être produite. Un accord entre les deux analyses n'est pas une preuve : deux modèles peuvent partager la même erreur. Les désaccords non tranchés doivent apparaître en réserves.
 - Les motifs citent des constats précis des audits ou des sources. Les actions requises sont concrètes et vérifiables.`;
 
 
@@ -554,7 +587,7 @@ ${document}
 DOSSIER DE SOURCES VÉRIFIÉES:
 ${JSON.stringify(evidence, null, 2)}
 
-Retourne ce JSON strict : {"score_global":0,"scores":{"exactitude_factuelle":0,"qualite_sources":0,"calculs":0,"couverture":0,"coherence":0,"actualite":0},"decision":"CORRIGER|VALIDER","resume":"","anomalies":[{"categorie":"fait|source|date|calcul|couverture|coherence|limite","gravite":"critique|elevee|moyenne|faible","affirmation_concernee":"","probleme":"","preuve":"URL ou extrait précis","correction_attendue":""}],"sources_non_verifiees":[],"sources_circulaires_ou_non_independantes":[],"divergences_sources":[],"calculs_reproduits":[{"objet":"","entrees":[],"formule":"","resultat":"","conforme":true}],"nouveau_cycle_requis":true}. Chaque score est un entier sur 100. Justifie tout score inférieur à 100 dans les anomalies. VALIDATION est interdite si une anomalie critique ou élevée subsiste.`;
+Retourne ce JSON strict : {"score_global":0,"scores":{"exactitude_factuelle":0,"qualite_sources":0,"calculs":0,"couverture":0,"coherence":0,"actualite":0},"decision":"CORRIGER|VALIDER","resume":"","claims":[{"id":"CLAIM-001","type":"fait|hypothese|estimation|calcul|interpretation|recommandation","affirmation":"","statut":"VERIFIE|NON_VERIFIE|CONTREDIT","critique":false,"sources":[]}],"anomalies":[{"categorie":"fait|source|date|calcul|couverture|coherence|limite","gravite":"critique|elevee|moyenne|faible","affirmation_concernee":"","probleme":"","preuve":"URL ou extrait précis","correction_attendue":""}],"sources_non_verifiees":[],"sources_circulaires_ou_non_independantes":[],"divergences_sources":[],"calculs_reproduits":[{"objet":"","entrees":[],"formule":"","resultat":"","conforme":true}],"nouveau_cycle_requis":true}. Chaque score est un entier sur 100. Justifie tout score inférieur à 100 dans les anomalies. VALIDATION est interdite si une anomalie critique ou élevée subsiste.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -692,8 +725,9 @@ async function saveRun(userId, result, { request, task, models, error = null, du
                          final_document,result,total_cost,prompt_tokens,completion_tokens,
                          error,cycles,final_score,arbiter_decision,arbiter_confidence,
                          arbiter_evidence_confidence,arbiter_conclusion_confidence,
+                         claims_total,claims_critical_unverified,
                          sources_total,sources_accessible,document_chars,duration_ms,firecrawl_enabled)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        ON CONFLICT (id) DO UPDATE SET
          status=EXCLUDED.status, stop_reason=EXCLUDED.stop_reason, final_document=EXCLUDED.final_document,
          result=EXCLUDED.result, total_cost=EXCLUDED.total_cost, prompt_tokens=EXCLUDED.prompt_tokens,
@@ -701,7 +735,9 @@ async function saveRun(userId, result, { request, task, models, error = null, du
          final_score=EXCLUDED.final_score, arbiter_decision=EXCLUDED.arbiter_decision,
          arbiter_confidence=EXCLUDED.arbiter_confidence,
          arbiter_evidence_confidence=EXCLUDED.arbiter_evidence_confidence,
-         arbiter_conclusion_confidence=EXCLUDED.arbiter_conclusion_confidence, sources_total=EXCLUDED.sources_total,
+         arbiter_conclusion_confidence=EXCLUDED.arbiter_conclusion_confidence,
+         claims_total=EXCLUDED.claims_total,
+         claims_critical_unverified=EXCLUDED.claims_critical_unverified, sources_total=EXCLUDED.sources_total,
          sources_accessible=EXCLUDED.sources_accessible, document_chars=EXCLUDED.document_chars,
          duration_ms=EXCLUDED.duration_ms, firecrawl_enabled=EXCLUDED.firecrawl_enabled, updated_at=NOW()`,
       [
@@ -711,16 +747,18 @@ async function saveRun(userId, result, { request, task, models, error = null, du
         summary.promptTokens, summary.completionTokens,
         error, summary.cycles, summary.finalScore, summary.arbiterDecision, summary.arbiterConfidence,
         summary.arbiterEvidenceConfidence, summary.arbiterConclusionConfidence,
+        summary.claimsTotal, summary.claimsCriticalUnverified,
         summary.sourcesTotal, summary.sourcesAccessible, summary.documentChars,
         durationMs, result.firecrawlEnabled ?? null
       ]
     );
     // Rejouable : une reprise ne doit pas doubler les lignes filles.
-    for (const table of ["run_sources", "run_audits", "run_calls"]) {
+    for (const table of ["run_sources", "run_audits", "run_claims", "run_calls"]) {
       await client.query(`DELETE FROM ${table} WHERE run_id=$1`, [result.id]);
     }
     await insertRows(client, "run_sources", sourceRows(result.id, result.sources));
     await insertRows(client, "run_audits", auditRows(result.id, result.audits));
+    await insertRows(client, "run_claims", claimRows(result.id, result.audits));
     await insertRows(client, "run_calls", callRows(result.id, result.calls));
     await client.query("COMMIT");
     return true;
@@ -787,21 +825,104 @@ async function executeJob(job, user, body) {
   // pouvoir être historisée avec ce qu'elle avait déjà produit (document rédigé, cycles payés).
   job.partial = { result, request, task, models, startedAt };
 
+  const diversification = shouldDiversify({ task, requested: body.diversify === undefined ? undefined : body.diversify === true });
+  result.diversifyRequested = diversification.run;
+
   emit(job, "models", { message: "Modèles sélectionnés", task, models });
-  emit(job, "insight", { category: "strategy", message: `Tâche classée « ${task} ». ${modelLabel(models.writer)} rédige, ${modelLabel(models.auditor)} audite, ${modelLabel(models.arbiter)} arbitre.`, details: { models } });
+  emit(job, "insight", {
+    category: "strategy",
+    message: `Tâche classée « ${task} ». ${modelLabel(models.writer)} rédige, ${modelLabel(models.auditor)} audite, ${modelLabel(models.arbiter)} arbitre` +
+      `${diversification.run ? `, ${modelLabel(models.challenger)} produit un second avis indépendant` : ""}. ${diversification.motif}.`,
+    details: { models: diversification.run ? models : { writer: models.writer, auditor: models.auditor, arbiter: models.arbiter } }
+  });
   if (attachments.length) emit(job, "insight", { category: "documents", message: `${attachments.length} document(s) extrait(s) et ajouté(s) au contexte.`, details: { files: result.attachments } });
 
+  // EXPLORE — cadrer avant de rédiger. Sans cette étape, le périmètre de l'analyse est celui que le
+  // premier brouillon retient en silence, et les cycles suivants ne peuvent que le perfectionner.
+  //
+  // Le cadrage est confié à l'auditeur plutôt qu'au rédacteur : celui-ci reçoit ainsi un périmètre
+  // qu'il n'a pas choisi. Que l'auditeur retrouve plus tard ses propres questions n'affaiblit pas
+  // l'audit — il note la `couverture` du document face à un périmètre qu'il a lui-même jugé
+  // nécessaire, ce qui le rend plus exigeant, pas moins.
+  //
+  // L'échec de cette étape n'interrompt jamais l'analyse : un cadrage est un supplément, pas une
+  // dépendance. Sans lui, le rédacteur travaille comme avant.
+  emit(job, "progress", { step: "explore", cycle: 0, percent: PROGRESS_EXPLORE, message: "Cadrage préalable de la demande" });
+  let exploration = null;
+  try {
+    const exploreCall = await callOpenRouter({
+      apiKey,
+      model: models.auditor,
+      system: explorerSystem,
+      user: explorePrompt(task, request, taskGuidance[task] || taskGuidance.general_analysis),
+      json: true,
+      web: false
+    });
+    exploration = normalizeExploration(parseJson(exploreCall.content, "Le cadrage", exploreCall.finishReason));
+    result.calls.push({ role: "cadrage", ...exploreCall });
+    result.totalCost += exploreCall.usage.cost;
+  } catch (error) {
+    console.warn(`[explore] cadrage indisponible : ${error.message}`);
+  }
+  result.exploration = exploration;
+  emit(job, "insight", { category: "explore", cycle: 0, message: exploreSummary(exploration), details: exploration || undefined });
+
+  const brief = exploreBrief(exploration);
+  const demandeCadree = brief ? `${brief}\n\n${request}` : request;
+
   emit(job, "progress", { step: "draft", cycle: 0, percent: PROGRESS_DRAFT, message: "Rédaction initiale avec recherche web" });
-  const first = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: writerPrompt(task, request), web: true });
+  const first = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: writerPrompt(task, demandeCadree), web: true });
   let document = first.content;
   result.versions.push({ cycle: 0, content: document });
   result.calls.push({ role: "redaction", ...first });
   result.totalCost += first.usage.cost;
   emit(job, "insight", { category: "draft", cycle: 0, message: `Le rédacteur a produit une première version de ${document.length.toLocaleString("fr-FR")} caractères.`, details: { model: first.model, citations: first.annotations?.length || 0 } });
 
+  // DIVERSIFY — une seconde lecture, indépendante, du même sujet.
+  //
+  // Le second rédacteur ne voit pas le premier document : c'est la condition pour que leur
+  // désaccord dise quelque chose. Les deux analyses sont ensuite comparées par un troisième modèle,
+  // qui n'en désigne pas une gagnante mais identifie la *cause* de chaque divergence et la question
+  // qui permettrait de la trancher. Ces questions rejoignent la correction du cycle 1 et
+  // l'arbitrage final : le désaccord devient un moteur de recherche, pas un vote.
+  //
+  // Étape facultative et tolérante à l'échec, pour la même raison que le cadrage.
+  let divergence = null;
+  if (diversification.run) {
+    try {
+      emit(job, "progress", { step: "challenger", cycle: 0, percent: PROGRESS_CHALLENGER, message: `Second avis indépendant par ${modelLabel(models.challenger)}` });
+      const challengerCall = await callOpenRouter({ apiKey, model: models.challenger, system: writerSystem, user: writerPrompt(task, demandeCadree), web: true });
+      result.calls.push({ role: "second_avis", ...challengerCall });
+      result.totalCost += challengerCall.usage.cost;
+      result.challengerDocument = challengerCall.content;
+      emit(job, "insight", { category: "challenger", cycle: 0, message: `Second avis produit : ${challengerCall.content.length.toLocaleString("fr-FR")} caractères, rédigés sans voir la première analyse.`, details: { model: challengerCall.model } });
+
+      emit(job, "progress", { step: "divergence", cycle: 0, percent: PROGRESS_DIVERGENCE, message: "Comparaison des deux analyses" });
+      const divergenceCall = await callOpenRouter({
+        apiKey,
+        model: models.auditor,
+        system: divergenceSystem,
+        user: divergencePrompt(request, document, challengerCall.content),
+        json: true,
+        web: false
+      });
+      divergence = normalizeDivergence(parseJson(divergenceCall.content, "La comparaison des analyses", divergenceCall.finishReason));
+      result.calls.push({ role: "divergence", ...divergenceCall });
+      result.totalCost += divergenceCall.usage.cost;
+      emit(job, "insight", { category: "divergence", cycle: 0, message: divergenceSummary(divergence), details: divergence || undefined });
+    } catch (error) {
+      console.warn(`[diverge] second avis indisponible : ${error.message}`);
+      emit(job, "insight", { category: "divergence", cycle: 0, message: `Second avis indisponible : ${error.message}. L'analyse se poursuit sur la première lecture seule.` });
+    }
+  }
+  result.divergence = divergence;
+
   // Partagé par tous les cycles : une URL déjà extraite par Firecrawl n'est jamais re-sollicitée,
   // et les sources contrôlées s'accumulent au lieu d'être remplacées à chaque cycle.
   const sourceCache = new Map();
+  // État de sortie de boucle, lu ensuite pour décider de la réfutation : une boucle qui a renoncé
+  // est précisément un cas où la conclusion mérite d'être attaquée.
+  let stagnated = false;
 
   for (let cycle = 1; cycle <= maxCycles; cycle += 1) {
     emit(job, "progress", { step: "sources", cycle, percent: cycleProgress("sources", cycle, maxCycles), message: `Cycle ${cycle} : vérification stricte des sources` });
@@ -820,21 +941,49 @@ async function executeJob(job, user, body) {
     emit(job, "progress", { step: "audit", cycle, percent: cycleProgress("audit", cycle, maxCycles), message: `Cycle ${cycle} : audit détaillé` });
     const auditCall = await callOpenRouter({ apiKey, model: models.auditor, system: auditorSystem, user: auditPrompt(request, document, verified, task), json: true, web: false });
     const audit = parseJson(auditCall.content, "L'audit", auditCall.finishReason);
-    result.audits.push({ cycle, ...audit });
+    // L'inventaire des affirmations remplace la liste brute renvoyée par le modèle : types et
+    // statuts y sont normalisés, et un statut absent vaut NON_VERIFIE plutôt que le bénéfice du
+    // doute. C'est cet objet qui alimente la porte, la correction et la table `run_claims`.
+    const claims = normalizeClaims(audit);
+    const regressions = claimRegressions(result.audits.at(-1)?.claims, claims);
+    result.audits.push({ cycle, ...audit, claims, regressions });
     result.calls.push({ role: "audit", ...auditCall });
     result.totalCost += auditCall.usage.cost;
-    // La condition d'arrêt reçoit le document et les sources réellement contrôlées : c'est ce qui
-    // lui permet d'opposer la mesure Firecrawl au verdict du modèle plutôt que de s'en remettre à
-    // la seule liste `sources_non_verifiees` que celui-ci veut bien renseigner.
-    const verdict = shouldStopAfterAudit(audit, minScore, { sources: verified, document });
+
+    // Ce que la réécriture intégrale du document pouvait faire perdre en silence : une affirmation
+    // établie au cycle précédent, absente ou dégradée au cycle courant. Le rapprochement se fait
+    // sur l'énoncé, donc imparfaitement — le signal est remonté à l'utilisateur, jamais opposé au
+    // document, une reformulation ne devant pas suffire à bloquer la boucle.
+    if (regressions.length) {
+      emit(job, "insight", {
+        category: "audit",
+        cycle,
+        message: `Cycle ${cycle} : ${regressions.length} affirmation(s) établie(s) au cycle précédent ne le sont plus après correction.`,
+        details: { regressions }
+      });
+    }
+
+    // La condition d'arrêt reçoit le document, les sources réellement contrôlées et l'inventaire des
+    // affirmations : c'est ce qui lui permet d'opposer la mesure Firecrawl au verdict du modèle
+    // plutôt que de s'en remettre à la seule liste `sources_non_verifiees` qu'il veut bien
+    // renseigner, et d'exiger que ce qui porte la conclusion soit établi.
+    const verdict = shouldStopAfterAudit(audit, minScore, { sources: verified, document, claims });
+    const stats = claimStats(claims);
     emit(job, "audit", { cycle, score: audit.score_global, scores: audit.scores, anomalies: audit.anomalies?.length || 0 });
     emit(job, "insight", {
       category: "audit",
       cycle,
-      message: `Cycle ${cycle} : score ${audit.score_global}/100, ${audit.anomalies?.length || 0} anomalie(s). ${audit.resume || ""}`,
+      message: `Cycle ${cycle} : score ${audit.score_global}/100, ${audit.anomalies?.length || 0} anomalie(s), ` +
+        `${stats.total} affirmation(s) inventoriée(s) dont ${stats.critiques} déterminante(s) et ${stats.nonVerifiees + stats.contredites} non établie(s). ${audit.resume || ""}`,
       // Les motifs rendent lisible la décision de poursuivre : sans eux, un cycle supplémentaire
       // ne se distingue pas d'un arrêt, et l'utilisateur ne peut pas savoir ce qui bloque.
-      details: { scores: audit.scores, decision: audit.decision, motifs: verdict.motifs, sourcesInjoignablesCitees: verdict.injoignables }
+      details: {
+        scores: audit.scores,
+        decision: audit.decision,
+        motifs: verdict.motifs,
+        sourcesInjoignablesCitees: verdict.injoignables,
+        affirmationsDeterminantesNonVerifiees: verdict.claimsCritiques.map(claim => claim.affirmation)
+      }
     });
 
     if (verdict.stop) break;
@@ -845,6 +994,7 @@ async function executeJob(job, user, body) {
     // résultat. Le document déjà produit part quand même à l'arbitrage.
     const stagnation = stagnationBetween(result.audits.at(-2), result.audits.at(-1));
     if (stagnation) {
+      stagnated = true;
       result.stopReason = `Arrêt sur stagnation : aucun progrès entre les cycles ${cycle - 1} et ${cycle} ` +
         `(score ${stagnation.avant.score} → ${stagnation.apres.score}, anomalies sévères ` +
         `${stagnation.avant.severes} → ${stagnation.apres.severes}) ; ${verdict.motifs.join(" ; ")}.`;
@@ -876,6 +1026,10 @@ ${document}
 AUDIT STRUCTURÉ:
 ${JSON.stringify(audit, null, 2)}
 
+${claimsBrief(claims)}
+
+${cycle === 1 ? divergenceBrief(divergence) : ""}
+
 SOURCES VÉRIFIÉES DISPONIBLES:
 ${JSON.stringify(verified.map(s => ({ url: s.url, accessible: s.accessible, title: s.title, sourceClass: s.sourceClass, reason: s.reason })), null, 2)}`;
     const correction = await callOpenRouter({ apiKey, model: models.writer, system: writerSystem, user: correctionPrompt, web: true });
@@ -884,6 +1038,48 @@ ${JSON.stringify(verified.map(s => ({ url: s.url, accessible: s.accessible, titl
     result.calls.push({ role: "correction", ...correction });
     result.totalCost += correction.usage.cost;
   }
+
+  // FALSIFY — chercher ce qui invaliderait la conclusion, avec la recherche web dont l'auditeur ne
+  // dispose pas. C'est le seul chemin par lequel l'application peut apprendre qu'une source
+  // *contredit* le document, et non seulement qu'une affirmation n'est pas étayée.
+  //
+  // Conditionnel : l'appel n'est payé que là où la validation repose sur quelque chose d'invérifié
+  // (voir shouldFalsify). Tolérant à l'échec, comme les autres étapes facultatives.
+  const derniereAudit = result.audits.at(-1);
+  const derniersClaims = derniereAudit?.claims || [];
+  const refutation = shouldFalsify({ audit: derniereAudit, claims: derniersClaims, sources: result.sources, minScore, stagnated });
+  let falsification = null;
+  if (refutation.run) {
+    try {
+      emit(job, "progress", { step: "falsify", percent: PROGRESS_FALSIFY, message: "Recherche adversariale : tenter de réfuter la conclusion" });
+      const falsifyCall = await callOpenRouter({
+        apiKey,
+        model: models.arbiter,
+        system: falsifierSystem,
+        user: falsifyPrompt(request, document, derniersClaims, derniereAudit),
+        json: true,
+        web: true
+      });
+      falsification = normalizeFalsification(parseJson(falsifyCall.content, "La réfutation", falsifyCall.finishReason));
+      result.calls.push({ role: "refutation", ...falsifyCall });
+      result.totalCost += falsifyCall.usage.cost;
+
+      // Les sources trouvées par la réfutation passent le même contrôle que les autres : une source
+      // contradictoire qui ne répond pas ne réfute rien. Le budget de l'analyse s'applique.
+      const urls = falsificationUrls(falsification);
+      if (urls.length && firecrawlEnabled) {
+        const budget = sourceBudget(sourceCache.size, { perCycle: MAX_SOURCES_PER_CYCLE, perRun: MAX_SOURCES_PER_RUN });
+        result.sources = await verifySources(urls.join("\n"), [], firecrawlApiKey, job, sourceCache, budget);
+      }
+      emit(job, "insight", { category: "falsify", message: falsifySummary(falsification), details: { motifs: refutation.motifs, ...(falsification || {}) } });
+    } catch (error) {
+      console.warn(`[falsify] réfutation indisponible : ${error.message}`);
+      emit(job, "insight", { category: "falsify", message: `Réfutation indisponible : ${error.message}. L'arbitrage se prononce sans elle.`, details: { motifs: refutation.motifs } });
+    }
+  } else {
+    emit(job, "insight", { category: "falsify", message: "Réfutation non déclenchée : aucune anomalie sévère, aucune affirmation déterminante non vérifiée, sources primaires joignables." });
+  }
+  result.falsification = falsification;
 
   emit(job, "progress", { step: "arbiter", percent: PROGRESS_ARBITER, message: `Arbitrage final indépendant par ${modelLabel(models.arbiter)}` });
   const arbiterPrompt = `DEMANDE:
@@ -894,6 +1090,10 @@ ${document}
 
 AUDITS:
 ${JSON.stringify(result.audits, null, 2)}
+
+${falsification ? `RECHERCHE ADVERSARIALE — tentative de réfutation du document, sources contrôlées comme les autres :\n${JSON.stringify(falsification, null, 2)}` : "RECHERCHE ADVERSARIALE : non déclenchée ou non concluante."}
+
+${divergence ? `COMPARAISON AVEC UNE ANALYSE INDÉPENDANTE :\n${JSON.stringify({ desaccords: divergence.desaccords, accordsNonEtayes: divergence.accordsNonEtayes }, null, 2)}` : ""}
 
 SOURCES:
 ${JSON.stringify(result.sources.map(s => ({ url: s.url, accessible: s.accessible, sourceClass: s.sourceClass })), null, 2)}
@@ -914,6 +1114,25 @@ JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":
   result.finalDocument = document;
   result.status = arbitration.decision === "APPROUVE" ? "validated" : arbitration.decision === "APPROUVE_AVEC_RESERVES" ? "validated_with_reservations" : "rejected_by_arbiter";
   result.stopReason = result.stopReason || `Décision de l'arbitre : ${arbitration.decision}`;
+
+  // Une contradiction grave, sourcée et dont la page a réellement été extraite est le fait le plus
+  // lourd que l'application sache établir contre un document. L'arbitre peut ne pas en tenir
+  // compte : la mesure, elle, ne disparaît pas. Le statut est donc dégradé même sur un APPROUVE,
+  // sans réécrire la décision rendue — elle reste lisible telle quelle dans `arbitration`.
+  const contradictionsConfirmees = confirmedContradictions(falsification, result.sources);
+  if (contradictionsConfirmees.length && result.status === "validated") {
+    result.status = "validated_with_reservations";
+    result.arbitrationOverride = {
+      raison: "contradictions sourcées et joignables établies par la recherche adversariale",
+      contradictions: contradictionsConfirmees
+    };
+    result.stopReason = `${result.stopReason} ; statut dégradé : ${contradictionsConfirmees.length} contradiction(s) sourcée(s) et joignable(s) non traitée(s) par l'arbitrage.`;
+    emit(job, "insight", {
+      category: "falsify",
+      message: `L'arbitre a approuvé, mais ${contradictionsConfirmees.length} contradiction(s) sourcée(s) et joignable(s) subsistent : le statut est ramené à « approuvé avec réserves ».`,
+      details: { contradictions: contradictionsConfirmees }
+    });
+  }
 
   // L'enregistrement ne doit jamais faire échouer une analyse déjà aboutie. Auparavant `await
   // saveRun(...)` précédait la publication du résultat : la moindre erreur Postgres (connexion

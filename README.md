@@ -28,11 +28,15 @@ que leur parenté.
 | Rôle | Recherche web | Mission |
 |---|---|---|
 | **Rédacteur** | oui | Produit le document, puis le corrige intégralement à chaque cycle |
-| **Auditeur** | non | Attaque le document, sur pièces uniquement : demande initiale, texte, dossier de sources contrôlées |
+| **Second avis** | oui | Traite la même demande **sans voir** la première analyse. Conditionnel |
+| **Auditeur** | non | Attaque le document sur pièces : demande, texte, dossier de sources contrôlées. Inventorie aussi les affirmations |
+| **Réfutation** | oui | Cherche à démentir le document plutôt qu'à l'auditer. Conditionnel |
 | **Arbitre** | non | Tranche sur la version finale. **Ne réécrit jamais.** |
 
 L'auditeur travaille sans recherche web pour deux raisons : le coût, et l'ancrage — un auditeur qui
-recherche lui-même finit par auditer sa propre recherche plutôt que le document.
+recherche lui-même finit par auditer sa propre recherche plutôt que le document. La conséquence est
+qu'il peut établir qu'une affirmation n'est **pas étayée**, jamais qu'une source la **contredit** :
+c'est précisément le trou que comble l'étape de réfutation, qui dispose de la recherche.
 
 ### Ce qui est déterministe, ce qui ne l'est pas
 
@@ -50,6 +54,37 @@ complaisant. Un score est une opinion ; un code HTTP est un fait.
 La condition d'arrêt (`lib/audit.js`) est du code, pas un prompt : elle est testée, elle renvoie ses
 motifs, et elle **oppose la mesure au verdict**. Un auditeur peut conclure `VALIDER` avec 95/100 —
 si une URL encore citée par le document a été mesurée injoignable, la boucle repart quand même.
+
+### Les sept étapes
+
+```text
+CADRAGE → RÉDACTION → SECOND AVIS → PREUVES → AUDIT → RÉFUTATION → ARBITRAGE
+            ↑                                    │
+            └────────── correction ──────────────┘
+```
+
+**Cadrage** — un appel court, avant toute rédaction, qui produit des *questions* et non des
+réponses : dimensions à couvrir, angles morts, périmètre que la demande ne tranche pas. Sans lui, le
+périmètre de l'analyse est celui que le premier brouillon retient en silence, et les cycles suivants
+ne peuvent que le perfectionner. Le cadrage est confié à un autre modèle que le rédacteur, qui
+reçoit ainsi un périmètre qu'il n'a pas choisi.
+
+**Second avis** — un second rédacteur, servi par un autre éditeur, traite la même demande sans voir
+la première analyse. Leurs positions sont ensuite comparées par un troisième modèle qui ne désigne
+pas de gagnant : il identifie la **cause** de chaque divergence (hypothèse, source, périmètre,
+horizon, calcul, critère) et la question qui permettrait de la trancher. Ces questions rejoignent la
+correction et l'arbitrage — le désaccord devient un moteur de recherche, pas un vote. Automatique
+sur les domaines juridique et financier, activable ailleurs.
+
+**Audit et inventaire** — l'auditeur restitue désormais la liste des affirmations du document :
+type, statut (`VERIFIE`, `NON_VERIFIE`, `CONTREDIT`), sources qui la portent, et si la conclusion en
+dépend. Cet inventaire ne coûte aucun appel supplémentaire — c'est le travail que l'auditeur faisait
+déjà, rendu explicite — et devient une table requêtable, une condition d'arrêt, et le moyen de
+détecter ce qu'une réécriture a fait perdre.
+
+**Réfutation** — une recherche adversariale dont la mission n'est pas d'auditer le document mais de
+le démentir. Toute objection sans URL est écartée par le code, et les sources qu'elle produit
+passent le même contrôle d'accessibilité que les autres.
 
 ### Cycles : quand la boucle repart, quand elle s'arrête
 
@@ -78,18 +113,41 @@ et une confiance unique le rendait inexprimable. La confiance globale est ensuit
 code** par la plus faible des deux — on ne peut pas être plus sûr de sa conclusion que de ce qui la
 soutient — et la valeur initialement annoncée reste affichée lorsqu'un plafonnement s'applique.
 
+### Coût : les étapes chères sont conditionnelles
+
+Le principe directeur est le **minimum d'agents nécessaire pour atteindre un niveau de preuve
+suffisant**, pas le maximum d'agents possible. Le nombre d'appels n'est pas un indicateur de
+qualité.
+
+| Situation | Appels de modèle |
+|---|---|
+| Demande simple, validée au premier cycle | 4 (cadrage, rédaction, audit, arbitrage) |
+| Analyse standard, deux cycles | 6 |
+| Domaine à enjeu avec second avis et réfutation | 9 à 11 |
+
+La réfutation n'est payée que si la validation repose sur quelque chose d'invérifié : anomalie
+sévère subsistante, affirmation déterminante non établie, boucle qui a renoncé, ou — le cas le plus
+traître — un excellent score adossé à aucune source primaire joignable, c'est-à-dire un document
+convaincant que rien n'atteste. Le second avis n'est automatique que là où une erreur se paie cher.
+
 ### Ce que la méthode ne fait pas
 
 Ces limites sont assumées et documentées, pas ignorées :
 
-- **Pas de cadrage amont.** Le périmètre de l'analyse est celui que le premier brouillon retient ;
-  la suite est corrective. Une question mal cadrée le reste.
-- **Pas d'interprétation indépendante.** Un seul rédacteur : toutes les versions descendent d'une
-  même lecture initiale du sujet.
-- **Pas de recherche de réfutation.** L'auditeur travaillant hors ligne, l'application peut constater
-  qu'une affirmation n'est pas étayée, jamais qu'une source la contredit.
 - **Accessible ≠ probant.** Firecrawl établit qu'une page répond, pas qu'elle soutient l'affirmation
-  qui la cite.
+  qui la cite. Le lien entre une affirmation et sa source n'est apprécié que par l'auditeur, sur un
+  extrait tronqué.
+- **L'inventaire des affirmations est produit par un modèle.** Une affirmation qu'il n'extrait pas
+  n'est jamais vérifiée et n'apparaît dans aucune porte de contrôle : c'est un mode de défaillance
+  silencieux, que la table rend visible pour ce qu'elle contient, pas pour ce qu'elle omet.
+- **La détection de régression est approximative.** Les identifiants ne survivent pas d'un cycle à
+  l'autre, le rapprochement se fait sur l'énoncé : une reformulation compte comme une disparition.
+  Le signal est donc informatif, jamais bloquant.
+- **L'indépendance du second avis est celle du modèle, pas encore celle de l'éditeur.** Faute d'un
+  quatrième fournisseur dans la liste blanche, le second rédacteur partage son éditeur avec
+  l'auditeur.
+- **Un score reste un nombre inventé par un modèle.** Ce qui a changé, c'est que la porte de
+  validation ne s'en remet plus uniquement à lui.
 
 > 📄 [`docs/ANALYSE_METHODOLOGIE.md`](docs/ANALYSE_METHODOLOGIE.md) confronte cette méthodologie à sa
 > cible (`EXPLORE → EVIDENCE → DIVERSIFY → DISAGREE → FALSIFY → DECIDE → EXPLAIN`), détaille forces
@@ -119,6 +177,10 @@ lib/                 Logique sans effet de bord, importable par les tests
   task.js             Classification du domaine et cadrage du rédacteur
   models.js           Modèles par défaut, liste blanche, résolution auto/manuelle
   audit.js            Verdict d'audit, condition d'arrêt, stagnation, confiances de l'arbitrage
+  explore.js          Cadrage préalable : dimensions, questions de recherche, angles morts
+  claims.js           Inventaire des affirmations, porte de validation, détection de régression
+  falsify.js          Réfutation adversariale : déclencheurs, contrat, contradictions confirmées
+  diverge.js          Second avis indépendant et matrice des divergences
   persistence.js      Mise en forme des lignes historisées et journaux de fin d'analyse
   analytics.js        Agrégats sur l'ensemble des exécutions
   progress.js         Position des étapes sur la barre de progression
@@ -145,7 +207,8 @@ package.json / package-lock.json
 Créées automatiquement au démarrage si `DATABASE_URL` est défini (`initDb`) :
 
 - **`users`** : `id` (uuid), `google_id` (unique), `email`, `name`, `picture`, `created_at`, `updated_at`.
-- **`runs`** : `id` (uuid), `user_id` (référence `users`), `request`, `task_type`, `status`, `stop_reason`, `writer_model`, `auditor_model`, `arbiter_model`, `final_document`, `result` (jsonb — objet complet de l'analyse), `total_cost`, `prompt_tokens`, `completion_tokens`, `created_at`, `updated_at`, plus des colonnes résumées calculées à l'écriture : `cycles`, `final_score`, `arbiter_decision`, `arbiter_confidence`, `arbiter_evidence_confidence`, `arbiter_conclusion_confidence`, `sources_total`, `sources_accessible`, `document_chars`, `duration_ms`, `firecrawl_enabled`, `error`. Index sur `(user_id, created_at desc)`.
+- **`runs`** : `id` (uuid), `user_id` (référence `users`), `request`, `task_type`, `status`, `stop_reason`, `writer_model`, `auditor_model`, `arbiter_model`, `final_document`, `result` (jsonb — objet complet de l'analyse), `total_cost`, `prompt_tokens`, `completion_tokens`, `created_at`, `updated_at`, plus des colonnes résumées calculées à l'écriture : `cycles`, `final_score`, `arbiter_decision`, `arbiter_confidence`, `arbiter_evidence_confidence`, `arbiter_conclusion_confidence`, `claims_total`, `claims_critical_unverified`, `sources_total`, `sources_accessible`, `document_chars`, `duration_ms`, `firecrawl_enabled`, `error`. Index sur `(user_id, created_at desc)`.
+- **`run_claims`** : une ligne par affirmation inventoriée, à chaque cycle — `claim_id`, `type`, `affirmation`, `statut`, `critique`, `sources` (jsonb). C'est le niveau de traçabilité qui manquait entre le document et la source : il permet de répondre à « sur quoi repose cette recommandation ? » et « si cette source tombe, qu'est-ce qui devient faux ? ».
 - **`run_sources`**, **`run_audits`**, **`run_calls`** : le détail d'une exécution sous forme requêtable — une ligne par source contrôlée, par cycle d'audit et par appel de modèle. Le jsonb `result` reste la source de vérité pour la relecture intégrale ; ces tables existent pour pouvoir filtrer et agréger sans le désérialiser. Écrites dans la même transaction que la ligne parente, supprimées en cascade avec elle.
 
 Les analyses en échec sont enregistrées comme les autres (`status='error'`, colonne `error` renseignée), avec le document déjà rédigé et les cycles déjà consommés.
@@ -181,18 +244,22 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 2. Extrait le texte des documents joints (30 000 caractères maximum par fichier) et l'injecte dans la demande, précédé d'une consigne explicite empêchant le modèle d'exécuter des instructions qui s'y trouveraient (protection contre l'injection de prompt via document).
 3. Classe automatiquement la tâche (`detectTask`) sauf si la sélection des modèles est manuelle.
 4. Sélectionne les modèles rédacteur/auditeur/arbitre selon le type de tâche. En sélection manuelle uniquement, retient ceux fournis par l'utilisateur, contrôlés contre une liste blanche côté serveur (`ALLOWED_MODELS`) — le sélecteur de l'interface n'est pas une protection.
-5. Produit une rédaction initiale avec recherche web OpenRouter.
-6. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, quota de 10 nouvelles sources par cycle et plafond de 20 par analyse), audit JSON structuré, puis arrêt si le score atteint le seuil cible, sans anomalie critique/élevée, sans source essentielle non vérifiée, **sans source citée mesurée injoignable**, sans demande explicite de nouveau cycle et sans verdict `CORRIGER` de l'auditeur ; sinon correction complète du document et nouveau cycle. Les motifs de poursuite sont affichés dans le fil de suivi.
-7. Abandonne les cycles restants si deux audits consécutifs ne progressent ni sur le score ni sur le nombre d'anomalies sévères (arrêt sur stagnation) : le document part malgré tout à l'arbitrage.
-8. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document et rend deux confiances distinctes (preuves, conclusion).
-9. Historise l'exécution si une base est configurée — ligne de synthèse, détail jsonb et lignes normalisées, en une transaction — puis diffuse l'événement `complete`. Un échec d'écriture est signalé mais ne fait pas échouer l'analyse : le résultat est publié dans tous les cas, et le champ `persisted` indique s'il a bien été enregistré.
-10. Journalise une ligne de fin (`[job] fin …`) résumant statut, cycles, score, arbitrage, sources, appels, tokens, coût, taille du document, durée et historisation. Une analyse interrompue produit une ligne `[job] échec …` et est historisée avec `status='error'`, son document déjà rédigé et ses cycles déjà consommés.
+5. Cadre la demande (`explorerSystem`, sans recherche web) : dimensions à couvrir, questions de recherche, angles morts et périmètre non tranché. Le résultat est préfixé à la demande transmise au rédacteur. Une erreur à cette étape n'interrompt jamais l'analyse — le rédacteur travaille alors sur la demande seule.
+6. Produit une rédaction initiale avec recherche web OpenRouter.
+7. Si le second avis est déclenché (domaine juridique ou financier, ou demande explicite) : fait traiter la même demande par un second rédacteur qui ne voit pas la première analyse, puis compare les deux (`divergenceSystem`). Les désaccords et les accords non étayés rejoignent la correction du cycle 1 et l'arbitrage.
+8. Enchaîne jusqu'à `maxCycles` cycles (1 à 5) : vérification des sources citées via Firecrawl (concurrence bornée à 4, quota de 10 nouvelles sources par cycle et plafond de 20 par analyse), audit JSON structuré **avec inventaire des affirmations**, puis arrêt si le score atteint le seuil cible, sans anomalie critique/élevée, sans source essentielle non vérifiée, **sans source citée mesurée injoignable**, **sans affirmation déterminante non vérifiée**, sans demande explicite de nouveau cycle et sans verdict `CORRIGER` de l'auditeur ; sinon correction complète du document et nouveau cycle. Les motifs de poursuite sont affichés dans le fil de suivi.
+9. Compare l'inventaire au cycle précédent et signale les affirmations établies qui ne le sont plus après réécriture (signal informatif, non bloquant).
+10. Abandonne les cycles restants si deux audits consécutifs ne progressent ni sur le score ni sur le nombre d'anomalies sévères (arrêt sur stagnation) : le document part malgré tout à l'arbitrage.
+11. Déclenche la réfutation adversariale (`falsifierSystem`, **avec** recherche web) si la validation repose sur quelque chose d'invérifié. Les URL qu'elle produit sont contrôlées comme les autres ; les objections sans URL sont écartées par le code.
+12. Fait arbitrer la version finale par un modèle indépendant, qui ne réécrit jamais le document et rend deux confiances distinctes (preuves, conclusion). Une contradiction grave, sourcée et dont la page répond dégrade le statut même sur un `APPROUVE`, sans réécrire la décision rendue.
+13. Historise l'exécution si une base est configurée — ligne de synthèse, détail jsonb et lignes normalisées, en une transaction — puis diffuse l'événement `complete`. Un échec d'écriture est signalé mais ne fait pas échouer l'analyse : le résultat est publié dans tous les cas, et le champ `persisted` indique s'il a bien été enregistré.
+14. Journalise une ligne de fin (`[job] fin …`) résumant statut, cycles, score, arbitrage, sources, appels, tokens, coût, taille du document, durée et historisation. Une analyse interrompue produit une ligne `[job] échec …` et est historisée avec `status='error'`, son document déjà rédigé et ses cycles déjà consommés.
 
 À chaque étape, un événement est diffusé en SSE pour alimenter le fil de suivi de l'interface.
 
 ### Diffusion temps réel (SSE)
 
-`GET /api/jobs/:id/events` rejoue d'abord tous les événements déjà émis pour ce job, puis reste ouvert (un ping toutes les 20 secondes maintient la connexion). Types d'événements émis : `models`, `insight`, `progress`, `source`, `audit`, `complete`, `error`. Les événements `progress` et `insight` portent un champ `cycle` explicite, ce qui permet au frontend de n'afficher qu'une seule entrée par étape (d'abord « en cours », puis enrichie de son constat détaillé) plutôt que deux fils redondants.
+`GET /api/jobs/:id/events` rejoue d'abord tous les événements déjà émis pour ce job, puis reste ouvert (un ping toutes les 20 secondes maintient la connexion). Types d'événements émis : `models`, `insight`, `progress`, `source`, `audit`, `complete`, `error`. Les catégories d'`insight` couvrent `strategy`, `documents`, `explore`, `draft`, `challenger`, `divergence`, `sources`, `audit`, `falsify`, `arbitration`, `persistence` et `error` ; les étapes de `progress` sont `explore`, `draft`, `challenger`, `divergence`, `sources`, `audit`, `correction`, `falsify` et `arbiter`. Les événements `progress` et `insight` portent un champ `cycle` explicite, ce qui permet au frontend de n'afficher qu'une seule entrée par étape (d'abord « en cours », puis enrichie de son constat détaillé) plutôt que deux fils redondants.
 
 ### Jobs et persistance en mémoire
 
@@ -273,7 +340,11 @@ Classification de la tâche
         ↓
 Sélection des modèles
         ↓
+Cadrage préalable : dimensions, questions, angles morts
+        ↓
 Rédaction avec recherche Web OpenRouter
+        ↓
+Second avis indépendant et matrice des divergences (conditionnel)
         ↓
 Extraction et contrôle des URL avec Firecrawl
         ↓
@@ -285,6 +356,8 @@ Correction complète du document
         ↓
 Nouveaux cycles, jusqu'à validation, stagnation ou épuisement
         ↓
+Réfutation adversariale avec recherche (conditionnelle)
+        ↓
 Arbitrage final indépendant (deux confiances)
         ↓
 Historisation, consultation et exports
@@ -294,15 +367,15 @@ La progression est diffusée en temps réel par Server-Sent Events et affichée 
 
 ## Modèles par défaut
 
-| Type de tâche | Rédacteur | Auditeur | Arbitre |
-|---|---|---|---|
-| Technique | Claude Opus latest | GPT-5.6 Sol | Grok latest |
-| Financier / FinOps | Claude Opus latest | GPT-5.6 Sol | Grok latest |
-| Juridique / conformité | Claude Opus latest | GPT-5.6 Sol | Grok latest |
-| Recherche actuelle | Claude Sonnet latest | GPT-5.6 Sol | Grok latest |
-| Analyse générale | Claude Sonnet latest | GPT latest | Grok latest |
+| Type de tâche | Rédacteur | Auditeur | Arbitre | Second avis |
+|---|---|---|---|---|
+| Technique | Claude Opus latest | GPT-5.6 Sol | Grok latest | GPT |
+| Financier / FinOps | Claude Opus latest | GPT-5.6 Sol | Grok latest | GPT |
+| Juridique / conformité | Claude Opus latest | GPT-5.6 Sol | Grok latest | GPT |
+| Recherche actuelle | Claude Sonnet latest | GPT-5.6 Sol | Grok latest | GPT |
+| Analyse générale | Claude Sonnet latest | GPT latest | Grok latest | GPT-5.6 Terra |
 
-Les modèles peuvent être sélectionnés manuellement dans l’interface.
+Les modèles peuvent être sélectionnés manuellement dans l’interface. Le modèle du second avis n’est sollicité que lorsque cette étape est déclenchée ; il est toujours résolu vers un modèle différent du rédacteur **et** de l’arbitre, y compris en sélection manuelle — un second avis rendu par le rédacteur n’en serait pas un, et un arbitre qui a co-rédigé ne peut plus juger.
 
 ## Détection du type de tâche
 
@@ -374,7 +447,7 @@ La validation effectuée dans l’interface contrôle le format, pas l’authent
 
 ## Prompts utilisés
 
-Les prompts effectifs sont définis directement dans `server.js` (`writerSystem`, `auditorSystem`, `arbiterSystem`, `taskGuidance`).
+Les prompts effectifs sont définis dans `server.js` (`writerSystem`, `auditorSystem`, `arbiterSystem`, `taskGuidance`) et dans `lib/` pour les étapes ajoutées en 1.7.0 : `explorerSystem` (`lib/explore.js`), `falsifierSystem` (`lib/falsify.js`) et `divergenceSystem` (`lib/diverge.js`). Ces trois-là sont volontairement co-localisés avec la logique qui exploite leur sortie — un contrat JSON et le code qui le normalise se relisent ensemble.
 
 ### Prompt système du rédacteur
 
@@ -539,6 +612,7 @@ Un document ne peut être validé automatiquement que si :
 - aucune anomalie critique ou élevée ne subsiste ;
 - aucune source essentielle n’est non vérifiée ;
 - **aucune URL encore citée par le document n’a été mesurée injoignable** ;
+- **aucune affirmation déterminante ne reste non vérifiée ou contredite** ;
 - aucun nouveau cycle n’est demandé ;
 - l’auditeur ne conclut pas à `CORRIGER` ;
 - l’arbitre rend une décision d’approbation.
@@ -567,7 +641,9 @@ Lorsqu’un cycle supplémentaire est engagé, les motifs qui l’imposent sont 
 - fil d’information chronologique avec défilement automatique ;
 - sélection manuelle ou automatique des modèles ;
 - historique cliquable ouvrant le détail d’une analyse passée ;
-- panneau de données historisées agrégeant toutes les analyses.
+- panneau de données historisées agrégeant toutes les analyses ;
+- onglet « Affirmations » : inventaire du dernier cycle, déterminantes non établies en tête, et ce que la réécriture a fait perdre ;
+- onglet « Contradiction » : cadrage préalable, second avis et désaccords, réfutation adversariale.
 
 ## État des services
 
@@ -680,8 +756,10 @@ journaux du service sans instrumentation supplémentaire :
 - La classification des sources reste heuristique.
 - Firecrawl ne garantit pas l’accès aux pages protégées, payantes ou bloquées. Une page joignable n’est pas pour autant probante : le lien entre une affirmation et la source qui la porte n’est apprécié que par l’auditeur, sur un extrait tronqué.
 - Les scores produits par les modèles ne constituent pas une certification.
-- Le cadrage de l’analyse est celui du premier brouillon : il n’existe pas d’étape d’exploration préalable, ni de seconde interprétation indépendante du même dossier de sources.
-- L’auditeur travaillant sans recherche web, l’application peut établir qu’une affirmation n’est pas étayée, jamais qu’une source la contredit.
+- L’inventaire des affirmations est produit par un modèle : une affirmation qu’il n’extrait pas n’est jamais vérifiée et n’apparaît dans aucune porte de contrôle.
+- La détection de régression rapproche les affirmations sur leur énoncé, les identifiants ne survivant pas d’un cycle à l’autre : une reformulation compte comme une disparition. Le signal est informatif, jamais bloquant.
+- Le second avis est rendu par un modèle distinct du rédacteur, mais du même éditeur que l’auditeur : l’indépendance obtenue est celle du modèle, pas encore celle de l’éditeur.
+- La réfutation adversariale ne prouve rien lorsqu’elle ne trouve rien : un verdict `CONFIRME` signifie que la recherche adverse a échoué, pas que le document est exact.
 - Les sujets sensibles doivent être revus par un professionnel qualifié.
 - Les tâches SSE actives sont conservées en mémoire, avec une éviction automatique après 2 heures ou au-delà de 500 jobs conservés ; une coupure du processus interrompt une analyse en cours.
 - La suite de tests (`npm test`) couvre la logique sans effet de bord extraite dans `lib/`, ainsi que la cohérence entre l'interface et le serveur. La boucle d'analyse elle-même (`executeJob`), les appels réseau (OpenRouter, Firecrawl), les routes Express et les exports restent non couverts.

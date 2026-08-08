@@ -197,6 +197,29 @@ test("la citation est reconnue au-delà des douze premières URL du document", (
   assert.deepEqual(unreachableCitedSources(document, sources), ["https://exemple.fr/19"]);
 });
 
+test("une affirmation déterminante non établie empêche l'arrêt", () => {
+  // Le score global dit qu'un document est bon ; l'inventaire dit *ce qui* n'est pas démontré. Une
+  // conclusion ne peut pas être validée tant qu'une affirmation dont elle dépend reste en l'air.
+  const verdict = shouldStopAfterAudit(auditConforme, 90, {
+    claims: [
+      { affirmation: "Porte la conclusion", critique: true, statut: "NON_VERIFIE" },
+      { affirmation: "Établie", critique: true, statut: "VERIFIE" },
+      { affirmation: "Accessoire", critique: false, statut: "NON_VERIFIE" }
+    ]
+  });
+  assert.equal(verdict.stop, false);
+  assert.deepEqual(verdict.motifs, ["1 affirmation(s) déterminante(s) non vérifiée(s)"]);
+  assert.deepEqual(verdict.claimsCritiques.map(claim => claim.affirmation), ["Porte la conclusion"]);
+});
+
+test("un inventaire entièrement établi n'ajoute aucun motif", () => {
+  const verdict = shouldStopAfterAudit(auditConforme, 90, {
+    claims: [{ affirmation: "Établie", critique: true, statut: "VERIFIE" }]
+  });
+  assert.equal(verdict.stop, true);
+  assert.deepEqual(verdict.motifs, []);
+});
+
 // ---------------------------------------------------------------------------
 // Stagnation
 // ---------------------------------------------------------------------------

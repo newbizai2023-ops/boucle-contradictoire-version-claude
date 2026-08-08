@@ -81,3 +81,15 @@ test("modelLabel rend les identifiants lisibles, y compris hors catalogue", () =
   assert.equal(modelLabel("~inconnu/modele-x"), "inconnu/modele-x", "le tilde de préfixe est retiré");
   assert.equal(modelLabel(undefined), "");
 });
+
+test("le second avis est toujours confié à un autre modèle que le rédacteur", () => {
+  // Un « second avis » rendu par le modèle qui a rédigé n'en est pas un : la seule propriété qui
+  // compte ici est la différence, y compris quand l'utilisateur choisit ses modèles à la main.
+  for (const task of Object.keys(MODEL_DEFAULTS)) {
+    const models = selectModels(task);
+    assert.notEqual(models.challenger, models.writer, `${task} : rédacteur et second avis identiques`);
+    assert.notEqual(models.challenger, models.arbiter, `${task} : un arbitre qui a co-rédigé ne peut plus juger`);
+  }
+  const manuel = selectModels("general_analysis", { writer: "openai/gpt-5.6-terra", challenger: "openai/gpt-5.6-terra" });
+  assert.notEqual(manuel.challenger, manuel.writer, "sélection manuelle : le doublon est corrigé");
+});
