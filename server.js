@@ -17,15 +17,20 @@ import mammoth from "mammoth";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// Source unique de vérité pour le numéro de version : lu depuis package.json plutôt que
+// dupliqué en dur, pour éviter tout risque de désynchronisation entre les deux (voir CHANGELOG.md
+// et la politique de versionnage documentée dans le README).
+const require = createRequire(import.meta.url);
+const { version: RELEASE } = require("./package.json");
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const RELEASE = "1.0.0";
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";

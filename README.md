@@ -2,7 +2,7 @@
 
 Application web Node.js qui orchestre une analyse multi-modèles avec recherche Web, contrôle des sources, corrections successives, arbitrage indépendant, historique PostgreSQL, exports et tableau de bord de consommation.
 
-**Version actuelle : 1.0.0**
+**Version actuelle : 1.1.0** — voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
 
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
 
@@ -32,6 +32,7 @@ public/
   styles.css           Styles (thèmes clair/sombre, mise en page responsive)
 docs/
   BUILD_PROMPT.md       Prompt maître autonome permettant de reconstruire l'application
+CHANGELOG.md            Historique des versions (Keep a Changelog + SemVer)
 render.yaml            Déploiement Render (service web + base PostgreSQL)
 Dockerfile              Image de production (node:20-alpine)
 .dockerignore
@@ -424,6 +425,18 @@ Un document ne peut être validé automatiquement que si :
 - activation conditionnelle de Firecrawl ;
 - fil d’information chronologique avec défilement automatique ;
 - sélection manuelle ou automatique des modèles.
+
+## État des services
+
+La page d'accueil affiche, avant même la connexion, l'état des 4 services externes dont dépend
+l'application (source : `GET /api/health`, public) :
+
+| Service | Signifie | Sévérité si absent |
+|---|---|---|
+| OpenRouter | clé API configurée côté serveur | critique — aucune analyse n'est possible |
+| Firecrawl | clé API configurée côté serveur | non bloquant — recherche web OpenRouter toujours disponible |
+| Authentification Google | `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` configurés | critique — aucune connexion possible (hors `DEV_BYPASS_AUTH`) |
+| Base de données | connexion PostgreSQL active (`SELECT 1`) | non bloquant — historique et dashboard limités à la mémoire du process |
 
 ## Historique et exports
 

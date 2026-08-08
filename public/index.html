@@ -23,6 +23,15 @@
     <div class="how-it-works-step"><span class="step-number">3</span><strong>Tu récupères un document sourcé</strong><small>Scores détaillés, sources contrôlées, coûts et export Markdown, PDF, Word ou Excel.</small></div>
   </div>
 </section>
+<section class="panel services-status">
+  <div class="section-title"><div><p class="eyebrow">ÉTAT DES SERVICES</p><h2>Services et clés API</h2></div></div>
+  <div class="api-service-grid" aria-live="polite">
+    <article class="api-service-card"><div><strong>OpenRouter</strong><small>Modèles et recherche Web — indispensable</small></div><span id="openrouterServerStatus" class="service-status checking">Vérification…</span></article>
+    <article class="api-service-card"><div><strong>Firecrawl</strong><small>Contrôle approfondi des sources — optionnel</small></div><span id="firecrawlServerStatus" class="service-status checking">Vérification…</span></article>
+    <article class="api-service-card"><div><strong>Authentification Google</strong><small>Connexion des utilisateurs</small></div><span id="googleServerStatus" class="service-status checking">Vérification…</span></article>
+    <article class="api-service-card"><div><strong>Base de données</strong><small>Historique et tableau de bord persistants</small></div><span id="databaseServerStatus" class="service-status checking">Vérification…</span></article>
+  </div>
+</section>
 <main id="app" hidden>
   <section class="panel form-panel">
     <form id="reviewForm" enctype="multipart/form-data" novalidate>
@@ -69,11 +78,7 @@ Vérifie les informations importantes à l’aide de sources récentes et fiable
       </div>
 
       <div class="form-section api-configuration">
-        <div class="section-heading"><span class="step-number">3</span><div><h2>Services API</h2><p>Les clés configurées dans Render restent secrètes et ne sont jamais affichées.</p></div></div>
-        <div class="api-service-grid" aria-live="polite">
-          <article class="api-service-card"><div><strong>OpenRouter</strong><small>Modèles et recherche Web</small></div><span id="openrouterServerStatus" class="service-status checking">Vérification…</span></article>
-          <article class="api-service-card"><div><strong>Firecrawl</strong><small>Contrôle approfondi des sources</small></div><span id="firecrawlServerStatus" class="service-status checking">Vérification…</span></article>
-        </div>
+        <div class="section-heading"><span class="step-number">3</span><div><h2>Services API</h2><p>L’état de chaque service est visible en haut de page. Les clés configurées dans Render restent secrètes et ne sont jamais affichées.</p></div></div>
         <details id="temporaryKeys" class="advanced-settings">
           <summary>Utiliser exceptionnellement des clés temporaires</summary>
           <p>Ces valeurs remplacent les clés Render uniquement pour cette analyse. Elles ne sont ni enregistrées dans l’historique ni affichées après l’envoi.</p>

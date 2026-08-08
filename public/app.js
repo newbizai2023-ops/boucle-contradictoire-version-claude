@@ -58,16 +58,19 @@ function validateKeys(showErrors = false) {
 }
 
 function renderServerApiStatus(health) {
-  // OpenRouter est indispensable (aucune analyse n'est possible sans elle) : une clé absente
-  // est donc affichée en "critical" (rouge), plus sévère que Firecrawl (amélioration optionnelle).
+  // OpenRouter et l'authentification Google sont indispensables (aucune analyse, ni aucune
+  // connexion, n'est possible sans elles) : affichées en "critical" (rouge) si absentes, plus
+  // sévère que Firecrawl et la base de données, qui ne font que dégrader l'expérience.
   const items = [
-    ['#openrouterServerStatus', Boolean(health.hasOpenRouterKey), 'critical'],
-    ['#firecrawlServerStatus', Boolean(health.hasFirecrawlKey), 'missing']
+    ['#openrouterServerStatus', Boolean(health.hasOpenRouterKey), 'critical', 'Configurée sur Render', 'Non configurée'],
+    ['#firecrawlServerStatus', Boolean(health.hasFirecrawlKey), 'missing', 'Configurée sur Render', 'Non configurée'],
+    ['#googleServerStatus', Boolean(health.googleAuth), 'critical', 'Configurée', 'Non configurée'],
+    ['#databaseServerStatus', Boolean(health.database), 'missing', 'Connectée', 'Non connectée']
   ];
-  for (const [selector, configured, missingSeverity] of items) {
+  for (const [selector, configured, missingSeverity, okLabel, missingLabel] of items) {
     const node = $(selector);
     if (!node) continue;
-    node.textContent = configured ? 'Configurée sur Render' : 'Non configurée';
+    node.textContent = configured ? okLabel : missingLabel;
     node.className = `service-status ${configured ? 'configured' : missingSeverity}`;
   }
   const details = $('#temporaryKeys');
