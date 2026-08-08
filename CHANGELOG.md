@@ -15,6 +15,29 @@ désynchronisation entre le code et le numéro affiché.
 
 ## [Non publié]
 
+## [1.1.1] - 2026-08-08
+
+### Corrigé
+
+- Le message de stratégie du fil de suivi (« Claude rédige, GPT audite et Grok arbitre ») était
+  codé en dur, indépendamment des modèles réellement sélectionnés (visible en sélection manuelle :
+  un rédacteur Kimi affichait quand même « Claude rédige »). Il cite désormais les modèles
+  effectivement utilisés.
+- `scrapeFirecrawl()` ne produisait aucun log, rendant impossible de vérifier depuis les logs
+  serveur si l'API Firecrawl fonctionnait réellement. Ajout de logs `[firecrawl]` par URL
+  (tentative, succès avec taille extraite, échec avec raison).
+- Le repli automatique vers un modèle de secours (déclenché quand un modèle ne renvoie que des
+  réponses vides) ne s'appliquait qu'aux modèles Kimi et ne bénéficiait que d'une seule tentative,
+  contrairement au modèle d'origine qui en avait deux (avec puis sans recherche web) — ce qui a pu
+  faire échouer une analyse en production quand le repli lui-même est ressorti vide sans deuxième
+  chance. Le repli s'applique désormais à n'importe quel modèle en échec, avec le même traitement
+  de réessai que le modèle d'origine.
+- `parseJson()` (audit et arbitrage) ne tentait qu'une seule extraction de secours en cas de JSON
+  invalide, insuffisante pour un contenu enveloppé dans un bloc de code markdown ```` ```json ``` ````.
+  Ajout d'une étape d'extraction supplémentaire, et journalisation du contenu brut et du
+  `finish_reason` en cas d'échec total, pour diagnostiquer la cause exacte (troncature par la
+  limite de tokens, texte parasite, etc.) au lieu d'une simple erreur de syntaxe sans contexte.
+
 ## [1.1.0] - 2026-08-08
 
 ### Ajouté
