@@ -21,6 +21,18 @@ avec les 1.8.0 successives.
 
 ## [Non publié]
 
+## [1.8.2] - 2026-08-09
+
+### Ajouté
+
+- **`ONBOARDING.md`** : guide d'accueil pour un coéquipier découvrant Claude Code sur ce dépôt —
+  dépôts à cloner, serveurs MCP à activer (GitHub, Render) et ce à quoi ils servent ici. Le fichier
+  se colle tel quel dans Claude Code, qui déroule alors l'installation pas à pas.
+
+  Aucun changement applicatif : la version est incrémentée parce que la règle le veut pour chaque
+  pull request, et parce qu'un numéro qui ne bouge pas sur un dépôt qui change est exactement le
+  problème que cette règle corrige.
+
 ## [1.8.1] - 2026-08-08
 
 Trois corrections issues d'observations sur l'application déployée, et la mise à jour des textes
