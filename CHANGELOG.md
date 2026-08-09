@@ -21,6 +21,76 @@ rencontré avec les 1.8.0 successives.
 
 ## [Non publié]
 
+## [1.11.0] - 2026-08-09
+
+### Corrigé
+
+- **Une approbation de l'arbitre écrite `APPROUVÉ` était enregistrée comme un rejet.** La comparaison
+  était stricte — `arbitration.decision === "APPROUVE"` — alors que `CLAUDE.md` pose la règle
+  inverse : les valeurs produites par un modèle se comparent sans accents et sans casse, jamais par
+  égalité. Le contrat JSON demande `APPROUVE` sans accent, mais « approuvé » s'écrit avec, et un
+  arbitre qui rédige en français répond naturellement `APPROUVÉ` : son approbation tombait alors dans
+  la branche par défaut. Même classe d'erreur que `isSevere` avant la 1.5.0, sur la décision la plus
+  lourde du dispositif.
+
+  La dérivation passe désormais par `arbitrationStatus` (`lib/audit.js`), qui normalise aussi les
+  séparateurs : « Approuvé avec réserves » avec des espaces vaut `APPROUVE_AVEC_RESERVES`. Une
+  décision absente ou inintelligible reste un rejet — un modèle qui omet le champ ne doit pas faire
+  valider un document — mais `decisionIntelligible` permet désormais de le dire dans le fil de suivi
+  au lieu de laisser une faute de forme passer pour un rejet motivé.
+
+  **Ce bug n'explique pas les rejets observés sur l'instance déployée** : les journaux montrent un
+  `arbitrage=REJETE` explicite sur les deux analyses achevées du 8 août. Il était latent.
+
+- **L'historique affichait indéfiniment des analyses que le serveur n'a jamais enregistrées.**
+  `loadHistory` fusionnait les lignes du cache local que la réponse serveur ne contenait plus, ce qui
+  les rendait définitives : colonnes vides, statut jamais enregistré, et rien pour les distinguer
+  d'une vraie ligne. Le cache sert à peindre le tableau avant la réponse réseau et à ne pas laisser
+  la page vide si le serveur est injoignable ; il ne fait pas autorité, et la réponse le remplace
+  désormais entièrement.
+
+  `rememberRun` est retirée : définie et jamais appelée depuis son introduction, elle laissait croire
+  que le client alimentait ce cache avec les analyses qu'il voyait finir.
+
+### Ajouté
+
+- **Points de reprise : une analyse tuée en vol laisse désormais une trace.** La boucle dure dix à
+  vingt minutes et ne gardait son état qu'en mémoire jusqu'à l'écriture finale. Sur le plan gratuit
+  l'instance est recyclée bien avant : le 8 août, **18 analyses ont été lancées et 2 ont atteint leur
+  ligne de fin**. Les 16 autres n'ont laissé aucune trace — ni document, ni cycles, ni le coût déjà
+  engagé, qui se compte en dollars par analyse. Le gestionnaire d'erreur ne les rattrapait pas : il
+  ne se déclenche que si la promesse est rejetée, jamais si le processus est tué.
+
+  `saveCheckpoint` enregistre l'état courant dès la première version rédigée, puis à la fin de chaque
+  cycle d'audit — les deux moments après lesquels il serait le plus coûteux de tout reperdre. Le
+  document déjà produit est promu depuis la dernière version, sans quoi le point de reprise aurait
+  gardé le coût et les cycles mais pas le texte, soit précisément ce qu'on veut récupérer.
+
+  Le statut écrit est `interrupted`, pas `running` : une ligne lue en base décrit ce qui a survécu, et
+  ce qui survit d'une analyse inachevée est une interruption. L'écriture finale la remplace par le
+  statut réel, si bien qu'une ligne restée `interrupted` l'a vraiment été — là où un `running` jamais
+  mis à jour resterait lisible comme une analyse en cours. Aucune modification du schéma : `saveRun`
+  était déjà rejouable (`ON CONFLICT DO UPDATE`, puis suppression des lignes filles avant
+  réinsertion). Un échec de point de reprise est journalisé et n'interrompt jamais l'analyse.
+
+- **Compteur « Interrompues »** dans les données historisées. Ces analyses n'étant ni validées, ni
+  rejetées, ni en échec déclaré, elles gonflaient le total sans apparaître nulle part, et le coût
+  qu'elles avaient engagé passait pour celui d'analyses abouties.
+
+### Vérifié
+
+  Sur une base PostgreSQL réelle (`initdb` + `pg_ctl` local, utilisateur dédié) et un faux OpenRouter
+  local rejouant la boucle complète, sans dépense :
+
+  - une analyse dont l'arbitre répond `APPROUVÉ` est enregistrée `validated`, `arbiter_decision`
+    conservant l'orthographe rendue ;
+  - le processus tué par `SIGKILL` en plein cycle laisse une ligne `interrupted` portant ses 2 cycles,
+    son coût et son document ;
+  - **la même exécution, points de reprise retirés, ne laisse aucune ligne** — c'est la mutation qui
+    établit que le correctif porte bien sur le symptôme observé.
+
+  181 tests (177 auparavant).
+
 ## [1.10.1] - 2026-08-09
 
 ### Corrigé

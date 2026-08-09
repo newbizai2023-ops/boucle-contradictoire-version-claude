@@ -32,17 +32,21 @@ test("sourceState distingue contrôlée-joignable, contrôlée-injoignable et no
   assert.equal(sourceState({}), "unchecked");
 });
 
-test("les totaux comptent séparément validations, rejets et échecs", () => {
+test("les totaux comptent séparément validations, rejets, échecs et interruptions", () => {
   const { totals } = buildAnalytics([
     run("a", { status: "validated" }),
     run("b", { status: "validated_with_reservations" }),
     run("c", { status: "rejected_by_arbiter" }),
-    run("d", { status: "error" })
+    run("d", { status: "error" }),
+    run("e", { status: "interrupted" })
   ]);
-  assert.equal(totals.runs, 4);
+  assert.equal(totals.runs, 5);
   assert.equal(totals.validated, 2, "les deux formes de validation comptent");
   assert.equal(totals.rejected, 1);
   assert.equal(totals.errors, 1);
+  // Sans compteur dédié, une analyse dont le processus a disparu gonflait le total sans apparaître
+  // dans aucune catégorie : le coût qu'elle avait engagé passait pour celui d'analyses abouties.
+  assert.equal(totals.interrupted, 1);
 });
 
 test("le score retenu par exécution est celui du dernier cycle", () => {
