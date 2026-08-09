@@ -21,6 +21,26 @@ rencontré avec les 1.8.0 successives.
 
 ## [Non publié]
 
+## [1.9.0] - 2026-08-09
+
+### Ajouté
+
+- **Trois modèles de plus au choix** : Gemini Flash (`~google/gemini-flash-latest`), DeepSeek V4
+  Flash (`~deepseek/deepseek-v4-flash-latest`) et Claude Haiku (`~anthropic/claude-haiku-latest`).
+  Kimi était déjà proposé. Ils rejoignent `MODEL_LABELS`, donc la liste blanche `ALLOWED_MODELS`,
+  et les trois sélecteurs du formulaire.
+
+  Aucun changement des valeurs par défaut : ces modèles sont disponibles en sélection manuelle,
+  ils ne sont choisis automatiquement pour aucun domaine. Les listes de repli du second avis et de
+  la réfutation restent inchangées.
+
+  **Identifiants non vérifiés contre le catalogue OpenRouter** : l'environnement qui a produit ce
+  changement n'a pas accès au réseau vers `openrouter.ai`. Ils suivent la convention du dépôt pour
+  les alias suivant la dernière version (`~éditeur/modèle-latest`), celle de `~anthropic/claude-opus-latest`
+  et `~moonshotai/kimi-latest`. Un identifiant erroné ne casse rien au démarrage : il échoue à
+  l'appel, avec le message d'erreur d'OpenRouter, et seulement si un utilisateur choisit ce modèle.
+  À confirmer par `curl -s https://openrouter.ai/api/v1/models`.
+
 ## [1.8.4] - 2026-08-09
 
 ### Corrigé

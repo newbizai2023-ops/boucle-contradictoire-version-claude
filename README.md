@@ -406,6 +406,8 @@ La progression est diffusée en temps réel par Server-Sent Events et affichée 
 
 Un cinquième rôle, **réfutation**, mène la recherche adversariale : Kimi par défaut sur tous les domaines. Il était confié à l'arbitre jusqu'en 1.7.0, ce qui revenait à lui faire chercher les contradictions puis juger ses propres trouvailles — sur l'élément de preuve le plus lourd du dispositif, celui qui peut dégrader un `APPROUVE`.
 
+Modèles proposés en sélection manuelle, pour chacun des trois rôles réglables : Claude Opus, Claude Sonnet, Claude Haiku, GPT-5.6 Sol, GPT-5.6 Terra, Kimi, Grok, Gemini Flash et DeepSeek V4 Flash. La liste blanche `ALLOWED_MODELS` (dérivée de `MODEL_LABELS`) fait foi côté serveur : le `<select>` de l’interface n’est pas une protection, puisque la clé du déploiement prime sur celle de l’utilisateur.
+
 Les modèles peuvent être sélectionnés manuellement dans l’interface. Le modèle du second avis n’est sollicité que lorsque cette étape est déclenchée ; il est toujours résolu vers un modèle différent du rédacteur **et** de l’arbitre, y compris en sélection manuelle — un second avis rendu par le rédacteur n’en serait pas un, et un arbitre qui a co-rédigé ne peut plus juger.
 
 ## Détection du type de tâche
