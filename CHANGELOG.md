@@ -21,6 +21,27 @@ avec les 1.8.0 successives.
 
 ## [Non publié]
 
+## [1.8.3] - 2026-08-09
+
+### Ajouté
+
+- **`CLAUDE.md`** : notes de travail pour un agent intervenant sur ce dépôt. Consigne ce qui n'est
+  pas déductible du code seul — pourquoi la logique testable vit dans `lib/` (`server.js` appelle
+  `app.listen()` au chargement et n'est donc pas importable par un test), les conventions du projet
+  (français partout, commentaires expliquant le *pourquoi*, aucune dépendance de développement,
+  une version par pull request), et les pratiques de vérification qui ont réellement attrapé des
+  bugs ici : validation par mutation, tests de cohérence interface/serveur, base PostgreSQL réelle
+  pour le SQL, navigateur réel pour le SSE, APIs simulées pour rejouer un run sans dépenser.
+
+  Documente aussi les pièges propres au dépôt : l'octet NUL qui fait passer `server.js` pour
+  binaire aux yeux de `grep`, l'accent grave interdit dans les commentaires SQL des littéraux de
+  gabarit, le paramètre par défaut qui ne couvre pas `null`, et la nécessité de comparer les
+  valeurs produites par les modèles sans accents ni casse.
+
+  Le fichier ne cite aucun décompte de tests ou de modules : ces chiffres se périment à chaque
+  version, et un guide qui ment est pire que pas de guide. Chaque affirmation vérifiable a été
+  contrôlée par script avant publication.
+
 ## [1.8.2] - 2026-08-09
 
 ### Ajouté

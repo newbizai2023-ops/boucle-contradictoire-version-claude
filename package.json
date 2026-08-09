@@ -1,6 +1,6 @@
 {
   "name": "boucle-contradictoire",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "private": true,
   "description": "Analyse multi-modèles fondée sur les preuves : cadrage, second avis, audit, réfutation adversariale, arbitrage, sources et citations contrôlées, historique requêtable et exports",
   "type": "module",
