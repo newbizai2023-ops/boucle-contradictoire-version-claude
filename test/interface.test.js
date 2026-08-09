@@ -40,6 +40,20 @@ test("les modèles proposés par le formulaire sont tous acceptés par le serveu
   }
 });
 
+test("les champs de /api/health lus par l'interface sont ceux que le serveur émet", () => {
+  // Même classe de bug que le sélecteur inexistant : `health.releaseDate` sur une réponse qui ne
+  // porte pas ce champ vaut `undefined`, le badge se masque, et rien ne signale l'écart. Le test
+  // compare donc les champs lus dans app.js au corps de la réponse construite par le serveur.
+  const [corps] = matchAll(server, /app\.get\("\/api\/health"[\s\S]*?res\.json\(\{([\s\S]*?)\n  \}\);/g);
+  assert.ok(corps, "corps de la réponse /api/health introuvable");
+  const emis = new Set(matchAll(corps, /^\s*(\w+)[:,]/gm));
+  const lus = new Set(matchAll(clientScript, /\bhealth\.(\w+)/g));
+
+  assert.ok(lus.size > 3, "l'extraction des champs lus semble avoir échoué");
+  const manquants = [...lus].filter(champ => !emis.has(champ));
+  assert.deepEqual(manquants, [], `champ(s) lus par l'interface mais absents de /api/health : ${manquants.join(", ")}`);
+});
+
 test("les formats d'export proposés sont tous gérés par la route d'export", () => {
   const proposes = new Set(matchAll(html, /data-export="([^"]+)"/g));
   const geres = new Set(matchAll(server, /format === "([a-z]+)"/g));

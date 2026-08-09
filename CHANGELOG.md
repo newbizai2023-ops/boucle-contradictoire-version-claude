@@ -16,10 +16,92 @@ désynchronisation entre le code et le numéro affiché.
 **Chaque pull request incrémente la version** et publie son entrée ici, plutôt que de s'accumuler
 en « Non publié ». Le déploiement affiche donc toujours un numéro qui désigne exactement ce qui
 tourne : sans cette règle, deux états différents du service portent le même numéro, et une
-observation faite en production devient impossible à rattacher à un état du code — cas rencontré
-avec les 1.8.0 successives.
+observation faite sur l'instance déployée devient impossible à rattacher à un état du code — cas
+rencontré avec les 1.8.0 successives.
 
 ## [Non publié]
+
+## [1.10.0] - 2026-08-09
+
+### Ajouté
+
+- **Date et heure de production de la version, à côté de son numéro dans l'en-tête.** Le numéro dit
+  *quoi* tourne, pas *depuis quand* : après une fusion, vérifier que l'instance déployée sert bien le
+  nouveau code demandait d'aller lire l'historique des déploiements chez l'hébergeur.
+
+  Le projet n'a pas d'étape de construction où graver cette date. `lib/release.js` la résout donc au
+  chargement du module par une cascade de trois sources, de la plus fidèle à la plus approximative :
+
+  1. la date du dernier commit (`git log -1 --format=%cI`) — littéralement le moment où la version a
+     été produite, et elle ne bouge pas quand le service redémarre ;
+  2. la date de modification de `package.json` — celle de la récupération du dépôt par l'hébergeur,
+     utile quand le dépôt Git n'accompagne pas le déploiement ;
+  3. le démarrage du processus — toujours disponible, mais la seule qui *mente* : le plan gratuit
+     endort l'instance plusieurs fois par jour, et elle affichait alors l'heure du dernier réveil
+     comme si une version venait d'être produite.
+
+  La source retenue accompagne la date (`releaseDateSource`, `releaseDatePrecision` dans
+  `GET /api/health`) et l'interface la reprend en infobulle, précisément pour que le troisième cas
+  se lise comme tel au lieu de passer pour le premier. Les deux premières sources sont lues sur le
+  disque et leur échec est normal selon l'endroit où le service tourne : il est traité comme une
+  absence, jamais comme une erreur. Si aucune n'est exploitable, le badge est masqué — un champ
+  absent vaut mieux qu'une date inventée.
+
+  Date formatée en `fr-FR` explicitement, pas dans la locale du navigateur : la page est
+  intégralement en français, et un navigateur en anglais affichait « Aug 9, 2026 » au milieu du
+  reste (constaté au navigateur réel, comme le reste de cette vérification — badge présent, sans
+  débordement horizontal et sans erreur console à 412 px comme en 1280 px, thèmes clair et sombre,
+  et effectivement masqué quand `/api/health` ne porte pas de date).
+
+- **Contrôle de cohérence sur `/api/health`** (`test/interface.test.js`) : tout champ lu par
+  `public/app.js` sous la forme `health.<champ>` doit exister dans la réponse construite par
+  `server.js`. C'est la classe de bug la plus coûteuse ici — un champ absent vaut `undefined`, le
+  badge se masque, et rien ne signale l'écart. Validé par mutation : retirer `releaseDate` de la
+  route fait bien échouer le test.
+
+  177 tests (171 auparavant).
+
+## [1.9.0] - 2026-08-09
+
+### Ajouté
+
+- **Trois modèles de plus au choix** : Gemini Flash (`~google/gemini-flash-latest`), DeepSeek V4
+  Flash (`~deepseek/deepseek-v4-flash-latest`) et Claude Haiku (`~anthropic/claude-haiku-latest`).
+  Kimi était déjà proposé. Ils rejoignent `MODEL_LABELS`, donc la liste blanche `ALLOWED_MODELS`,
+  et les trois sélecteurs du formulaire.
+
+  Aucun changement des valeurs par défaut : ces modèles sont disponibles en sélection manuelle,
+  ils ne sont choisis automatiquement pour aucun domaine. Les listes de repli du second avis et de
+  la réfutation restent inchangées.
+
+  **Modèles constatés au catalogue, identifiants déduits.** L'environnement qui a produit ce
+  changement n'a pas accès au réseau vers `openrouter.ai` ; la présence des quatre modèles a donc été
+  vérifiée sur une capture du sélecteur de modèles, qui les liste sous ces noms exacts — « DeepSeek V4
+  Flash Latest », « Google Gemini Flash Latest », « Anthropic Claude Haiku Latest », « MoonshotAI
+  Kimi Latest ». Les identifiants, eux, restent déduits de la convention du dépôt pour les alias
+  suivant la dernière version (`~éditeur/modèle-latest`), celle de `~anthropic/claude-opus-latest` et
+  `~moonshotai/kimi-latest` : le nom affiché ne donne pas la casse ni la découpe du slug. Un
+  identifiant erroné ne casse rien au démarrage — il échoue à l'appel, avec le message d'erreur
+  d'OpenRouter, et seulement si un utilisateur choisit ce modèle. Confirmation complète par
+  `curl -s https://openrouter.ai/api/v1/models` depuis un poste qui joint le domaine.
+
+## [1.8.4] - 2026-08-09
+
+### Corrigé
+
+- **Le déploiement Render était décrit comme « la production ».** Il n'en est pas une : c'est une
+  instance de développement, et le seul déploiement existant à ce jour. Le mot s'était glissé dans
+  cinq passages écrits ces derniers jours, dont trois normatifs — la règle d'incrément de version au
+  changelog, dans le README et dans `CLAUDE.md` — qui seront relus bien plus souvent que le reste.
+  Remplacé par « l'instance déployée », qui reste vrai quel que soit l'usage du service.
+
+  `CLAUDE.md` précise désormais la nature de l'instance à l'endroit où elle est décrite, pour que la
+  confusion ne se reforme pas.
+
+  Les occurrences légitimes sont conservées : `NODE_ENV=production`, le garde-fou `DEV_BYPASS_AUTH`,
+  les cookies `secure`, l'image Docker. Ce sont des noms techniques, exacts quel que soit l'usage.
+  Les entrées de journal antérieures à la 1.8.0 ne sont pas retouchées : ce sont des constats
+  historiques, pas des règles.
 
 ## [1.8.3] - 2026-08-09
 
@@ -65,8 +147,8 @@ d'accueil. Aucun changement de contrat ni de méthodologie.
   réponse vide, `callOpenRouter` enchaînait jusqu'à quatre tentatives — modèle avec recherche,
   modèle sans recherche, repli avec recherche, repli sans recherche — chacune pouvant atteindre le
   délai d'expiration de quatre minutes. Aucun événement n'était émis entre-temps : le fil de suivi
-  restait figé sur la même étape, indiscernable d'un blocage. Constaté en production, six minutes
-  d'attente sur « Second avis indépendant ».
+  restait figé sur la même étape, indiscernable d'un blocage. Constaté sur l'instance déployée, six
+  minutes d'attente sur « Second avis indépendant ».
 
   Deux corrections. Toute reprise émet désormais une ligne dans le fil (catégorie `retry`), qui dit
   ce qui s'est passé et ce qui est tenté. Et les étapes **facultatives** — cadrage, second avis,

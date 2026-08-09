@@ -16,6 +16,8 @@ import mammoth from "mammoth";
 // l'entrée interne évite l'ouverture du PDF de test absent.
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 // Logique sans effet de bord, extraite dans lib/ pour être couverte par `npm test` : ce module
@@ -34,6 +36,7 @@ import { falsifierSystem, shouldFalsify, falsifyPrompt, normalizeFalsification, 
 import { shouldDiversify, divergenceSystem, divergencePrompt, normalizeDivergence, divergenceBrief, divergenceSummary } from "./lib/diverge.js";
 import { runSummary, sourceRows, auditRows, claimRows, callRows, completionLogLine, failureLogLine } from "./lib/persistence.js";
 import { buildAnalytics, normalizeRun } from "./lib/analytics.js";
+import { resolveReleaseDate } from "./lib/release.js";
 import { evidenceMarkdown, evidenceAnnex } from "./lib/report.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -43,6 +46,31 @@ const __dirname = path.dirname(__filename);
 // et la politique de versionnage documentée dans le README).
 const require = createRequire(import.meta.url);
 const { version: RELEASE } = require("./package.json");
+
+// Moment où cette version a été produite, résolu une seule fois au chargement. Les deux premières
+// sources sont lues sur le disque ; l'échec de l'une comme de l'autre est normal selon l'endroit où
+// le service tourne, jamais une erreur (voir lib/release.js).
+function commitDate() {
+  try {
+    return execFileSync("git", ["log", "-1", "--format=%cI"], { cwd: __dirname, encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function packageMtime() {
+  try {
+    return statSync(path.join(__dirname, "package.json")).mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+const RELEASE_DATE = resolveReleaseDate({
+  commitDate: commitDate(),
+  packageMtime: packageMtime(),
+  startedAt: new Date().toISOString()
+});
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -351,6 +379,9 @@ app.get("/api/health", async (_req, res) => {
   res.json({
     ok: true,
     release: RELEASE,
+    releaseDate: RELEASE_DATE.date,
+    releaseDateSource: RELEASE_DATE.source,
+    releaseDatePrecision: RELEASE_DATE.precision,
     database,
     hasOpenRouterKey: Boolean(process.env.OPENROUTER_API_KEY),
     hasFirecrawlKey: Boolean(process.env.FIRECRAWL_API_KEY),

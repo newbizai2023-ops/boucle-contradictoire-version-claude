@@ -69,6 +69,7 @@ p { color: var(--muted); line-height: 1.55; }
 .badge { border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; white-space: nowrap; }
 .badge.ok { color: var(--accent); }
 .badge.warn { color: var(--warn); }
+.badge.muted { color: var(--muted); }
 .badge.link { color: var(--text); text-decoration: none; }
 .badge.link:hover { border-color: color-mix(in srgb, var(--primary) 60%, var(--line)); }
 .login { background: var(--primary); color: #fff; text-decoration: none; padding: 10px 15px; border-radius: 12px; font-weight: 800; }

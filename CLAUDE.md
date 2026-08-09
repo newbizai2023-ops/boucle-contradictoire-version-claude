@@ -43,7 +43,7 @@ par responsabilité ; chacun est couvert soit par son propre fichier de test, so
   le symptôme observé et ce qui échouait — c'est ce qui rend ce dépôt relisable.
 - **Chaque pull request incrémente la version** et publie son entrée au changelog, sans passer par
   « Non publié ». La règle existe parce que deux états différents du service portant le même numéro
-  rendent toute observation de production irrattachable à un état du code. Elle vaut aussi pour un
+  rendent toute observation faite sur l'instance déployée irrattachable à un état du code. Elle vaut aussi pour un
   changement purement documentaire.
 - Le numéro affiché par l'application est lu depuis `package.json`, jamais dupliqué ailleurs.
 - Relire le **README** à chaque changement de comportement — sa prose, pas seulement ses listes.
@@ -74,7 +74,8 @@ les fichiers non encore indexés ne sont pas restaurés, ceux déjà indexés et
 
 ## Déploiement (Render)
 
-Service `srv-d9rfl55bedkc73blgrrg`, déployé depuis `main` via `render.yaml` — **pas** via le
+Service `srv-d9rfl55bedkc73blgrrg` — **instance de développement, et le seul déploiement à ce jour** :
+il n'existe pas d'environnement de production. Déployé depuis `main` via `render.yaml` — **pas** via le
 `Dockerfile`, qui ne sert qu'à une image locale. `autoDeploy` est activé mais ne se déclenche pas en
 pratique : déclencher le déploiement explicitement après un push, puis vérifier la version dans les
 journaux (`Boucle Contradictoire vX.Y.Z disponible`).

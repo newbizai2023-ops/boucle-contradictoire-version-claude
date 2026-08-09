@@ -4,7 +4,9 @@ Application web Node.js qui orchestre une analyse multi-modèles fondée sur les
 
 **Version courante** : voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
 
-**Chaque pull request incrémente la version** et publie son entrée dans le journal. Sans cette règle, deux états différents du service portent le même numéro, et une observation faite en production ne peut plus être rattachée à un état du code.
+L'en-tête affiche à côté du numéro la **date de production de cette version** (`lib/release.js`). Le projet n'ayant pas d'étape de construction où graver cette date, elle est résolue au démarrage par une cascade de trois sources, de la plus fidèle à la plus approximative : la date du commit, la date de récupération de `package.json` par l'hébergeur, puis le démarrage du processus. La source retenue est renvoyée avec la date et affichée en infobulle, parce que la dernière *ment* sur une instance qui s'endort — le plan gratuit redémarre plusieurs fois par jour sans qu'aucune version nouvelle soit produite, et une date d'affichage muette laisserait croire le contraire.
+
+**Chaque pull request incrémente la version** et publie son entrée dans le journal. Sans cette règle, deux états différents du service portent le même numéro, et une observation faite sur l'instance déployée ne peut plus être rattachée à un état du code.
 
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
 
@@ -203,6 +205,7 @@ server.js            Câblage HTTP : auth, prompts, boucle contradictoire, route
 lib/                 Logique sans effet de bord, importable par les tests
   task.js             Classification du domaine et cadrage du rédacteur
   models.js           Modèles par défaut, liste blanche, résolution auto/manuelle
+  release.js          Date de production de la version : cascade de sources, la plus fidèle d'abord
   audit.js            Verdict d'audit, condition d'arrêt, stagnation, confiances de l'arbitrage
   explore.js          Cadrage préalable : dimensions, questions de recherche, angles morts
   claims.js           Inventaire des affirmations, porte de validation, détection de régression
@@ -255,7 +258,7 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 | Méthode | Route | Rôle |
 |---|---|---|
 | GET | `/api/me` | Utilisateur courant et disponibilité de l'authentification Google |
-| GET | `/api/health` | État de santé : version, base de données, clés API configurées |
+| GET | `/api/health` | État de santé : version, date de production de la version, base de données, clés API configurées |
 | GET | `/auth/google` | Démarre le flux OAuth Google |
 | GET | `/auth/google/callback` | Retour du flux OAuth |
 | POST | `/auth/logout` | Déconnexion et destruction de session |
@@ -323,6 +326,7 @@ Les jobs actifs et leurs événements SSE vivent dans une `Map` en mémoire du p
 - Focus clavier harmonisé sur les boutons et onglets (même anneau que les champs de formulaire).
 - Thème clair activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
 - Lien rapide « Historique ↓ » dans l'en-tête pour un accès direct sans défiler toute la page.
+- Date de production de la version à côté de son numéro, en retrait visuel, avec en infobulle la source dont elle est tirée. Masquée plutôt qu'approximée si aucune source n'est exploitable.
 - Lignes d'historique activables au clavier (`Entrée`/`Espace`) autant qu'à la souris, ouvrant le détail de l'analyse sous le tableau.
 
 ## Déploiement
@@ -405,6 +409,8 @@ La progression est diffusée en temps réel par Server-Sent Events et affichée 
 | Analyse générale | Claude Sonnet latest | GPT latest | Grok latest | GPT-5.6 Terra |
 
 Un cinquième rôle, **réfutation**, mène la recherche adversariale : Kimi par défaut sur tous les domaines. Il était confié à l'arbitre jusqu'en 1.7.0, ce qui revenait à lui faire chercher les contradictions puis juger ses propres trouvailles — sur l'élément de preuve le plus lourd du dispositif, celui qui peut dégrader un `APPROUVE`.
+
+Modèles proposés en sélection manuelle, pour chacun des trois rôles réglables : Claude Opus, Claude Sonnet, Claude Haiku, GPT-5.6 Sol, GPT-5.6 Terra, Kimi, Grok, Gemini Flash et DeepSeek V4 Flash. La liste blanche `ALLOWED_MODELS` (dérivée de `MODEL_LABELS`) fait foi côté serveur : le `<select>` de l’interface n’est pas une protection, puisque la clé du déploiement prime sur celle de l’utilisateur.
 
 Les modèles peuvent être sélectionnés manuellement dans l’interface. Le modèle du second avis n’est sollicité que lorsque cette étape est déclenchée ; il est toujours résolu vers un modèle différent du rédacteur **et** de l’arbitre, y compris en sélection manuelle — un second avis rendu par le rédacteur n’en serait pas un, et un arbitre qui a co-rédigé ne peut plus juger.
 
