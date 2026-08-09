@@ -4,6 +4,8 @@ Application web Node.js qui orchestre une analyse multi-modèles fondée sur les
 
 **Version courante** : voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
 
+**Chaque pull request incrémente la version** et publie son entrée dans le journal. Sans cette règle, deux états différents du service portent le même numéro, et une observation faite en production ne peut plus être rattachée à un état du code.
+
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
 
 ## Méthodologie

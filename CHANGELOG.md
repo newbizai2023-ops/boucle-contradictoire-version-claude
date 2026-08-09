@@ -13,7 +13,18 @@ Le numéro de version affiché par l'application (`GET /api/health`, pied de pag
 depuis `package.json` (`server.js`) — il n'existe qu'une seule source de vérité, pour éviter toute
 désynchronisation entre le code et le numéro affiché.
 
+**Chaque pull request incrémente la version** et publie son entrée ici, plutôt que de s'accumuler
+en « Non publié ». Le déploiement affiche donc toujours un numéro qui désigne exactement ce qui
+tourne : sans cette règle, deux états différents du service portent le même numéro, et une
+observation faite en production devient impossible à rattacher à un état du code — cas rencontré
+avec les 1.8.0 successives.
+
 ## [Non publié]
+
+## [1.8.1] - 2026-08-08
+
+Trois corrections issues d'observations sur l'application déployée, et la mise à jour des textes
+d'accueil. Aucun changement de contrat ni de méthodologie.
 
 ### Corrigé
 
@@ -33,6 +44,25 @@ désynchronisation entre le code et le numéro affiché.
 - **L'échec du second avis laissait son entrée en attente indéfiniment.** Le message d'échec était
   émis sous la catégorie `divergence` alors que l'étape affichée était `challenger` : l'entrée
   « Second avis indépendant » restait donc marquée en cours jusqu'à la fin de l'analyse.
+
+- **Le choix du second avis était illisible sur mobile.** Deux défauts invisibles à la largeur de
+  bureau où le contrôle avait été vérifié. Le `<legend>` d'un `<fieldset>` se place sur la bordure :
+  sa description faisant quatre lignes sur un écran étroit, le bloc sortait de la carte en
+  chevauchant le trait — remplacé par un conteneur portant `role="radiogroup"` et `aria-labelledby`,
+  même sémantique sans ce comportement de mise en page. Et `input { width: 100% }`, appliqué à tout
+  le formulaire, faisait occuper au bouton radio toute la largeur de la ligne en repoussant son
+  libellé à plus de 300 px : la remise à zéro existait pour les interrupteurs, elle manquait pour
+  les boutons radio.
+
+### Modifié
+
+- **Les textes d'accueil décrivaient encore la boucle de la 1.1** : trois rôles, des corrections
+  successives jusqu'au score cible, un document sourcé en sortie. L'accroche cite désormais les cinq
+  modèles et surtout ce qui est réellement contrôlé — une source ouverte, une citation retrouvée
+  dans la page, une affirmation reliée à ce qui l'établit ; l'étape 2 mentionne le cadrage, la
+  réfutation adversariale et l'arbitre qui ne réécrit pas ; l'étape 3 annonce un dossier plutôt
+  qu'un texte. Ajout d'une métadonnée `description`, que la page n'avait pas : partager le lien
+  n'affichait aucun résumé. Mêmes corrections dans la description npm et l'introduction du README.
 
 ## [1.8.0] - 2026-08-08
 
