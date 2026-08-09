@@ -21,6 +21,24 @@ rencontré avec les 1.8.0 successives.
 
 ## [Non publié]
 
+## [1.10.1] - 2026-08-09
+
+### Corrigé
+
+- **Le bouton radio « Automatique » flottait à l'écart de son libellé** dans le choix du second avis
+  indépendant. La règle globale `small { display: block }` s'appliquait aussi au complément qui suit
+  le libellé — « Automatique <small>juridique et financier</small> » — qui passait donc à la ligne.
+  Le label étant un conteneur flex en `align-items: center`, le bouton se centrait alors sur les deux
+  lignes et se retrouvait à mi-hauteur, visuellement détaché du texte auquel il se rapporte.
+
+  `.radio-row small` remet `display: inline` et annule la marge haute : le complément est une incise,
+  pas un bloc. Mesuré au navigateur réel avant/après, à 412 px comme à 1280 px : hauteur du label de
+  40 px à 19 px, écart vertical entre le bouton et son complément de 12 px à 0. Validé par mutation —
+  retirer `display: inline` restaure les 40 px et l'écart de 12 px.
+
+  Même cause que le correctif de largeur de la 1.8.0 (`input { width: 100% }` qui repoussait le
+  libellé) : une règle globale du formulaire qui atteint un élément conçu pour une autre disposition.
+
 ## [1.10.0] - 2026-08-09
 
 ### Ajouté
