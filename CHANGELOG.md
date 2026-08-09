@@ -16,10 +16,28 @@ désynchronisation entre le code et le numéro affiché.
 **Chaque pull request incrémente la version** et publie son entrée ici, plutôt que de s'accumuler
 en « Non publié ». Le déploiement affiche donc toujours un numéro qui désigne exactement ce qui
 tourne : sans cette règle, deux états différents du service portent le même numéro, et une
-observation faite en production devient impossible à rattacher à un état du code — cas rencontré
-avec les 1.8.0 successives.
+observation faite sur l'instance déployée devient impossible à rattacher à un état du code — cas
+rencontré avec les 1.8.0 successives.
 
 ## [Non publié]
+
+## [1.8.4] - 2026-08-09
+
+### Corrigé
+
+- **Le déploiement Render était décrit comme « la production ».** Il n'en est pas une : c'est une
+  instance de développement, et le seul déploiement existant à ce jour. Le mot s'était glissé dans
+  cinq passages écrits ces derniers jours, dont trois normatifs — la règle d'incrément de version au
+  changelog, dans le README et dans `CLAUDE.md` — qui seront relus bien plus souvent que le reste.
+  Remplacé par « l'instance déployée », qui reste vrai quel que soit l'usage du service.
+
+  `CLAUDE.md` précise désormais la nature de l'instance à l'endroit où elle est décrite, pour que la
+  confusion ne se reforme pas.
+
+  Les occurrences légitimes sont conservées : `NODE_ENV=production`, le garde-fou `DEV_BYPASS_AUTH`,
+  les cookies `secure`, l'image Docker. Ce sont des noms techniques, exacts quel que soit l'usage.
+  Les entrées de journal antérieures à la 1.8.0 ne sont pas retouchées : ce sont des constats
+  historiques, pas des règles.
 
 ## [1.8.3] - 2026-08-09
 
@@ -65,8 +83,8 @@ d'accueil. Aucun changement de contrat ni de méthodologie.
   réponse vide, `callOpenRouter` enchaînait jusqu'à quatre tentatives — modèle avec recherche,
   modèle sans recherche, repli avec recherche, repli sans recherche — chacune pouvant atteindre le
   délai d'expiration de quatre minutes. Aucun événement n'était émis entre-temps : le fil de suivi
-  restait figé sur la même étape, indiscernable d'un blocage. Constaté en production, six minutes
-  d'attente sur « Second avis indépendant ».
+  restait figé sur la même étape, indiscernable d'un blocage. Constaté sur l'instance déployée, six
+  minutes d'attente sur « Second avis indépendant ».
 
   Deux corrections. Toute reprise émet désormais une ligne dans le fil (catégorie `retry`), qui dit
   ce qui s'est passé et ce qui est tenté. Et les étapes **facultatives** — cadrage, second avis,

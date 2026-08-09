@@ -30,7 +30,7 @@ Top MCP Servers:
 
 ## Team Tips
 
-- **Every pull request bumps the version.** Increment `package.json` and add a CHANGELOG entry in the same PR, even for a docs-only change. We learned this the hard way: three different states of the service all shipped as "1.8.0", and a bug observed in production could no longer be tied to a state of the code. Patch for a fix or copy, minor for a backwards-compatible feature, major for a broken contract.
+- **Every pull request bumps the version.** Increment `package.json` and add a CHANGELOG entry in the same PR, even for a docs-only change. We learned this the hard way: three different states of the service all shipped as "1.8.0", and a bug observed on the deployed instance could no longer be tied to a state of the code. Patch for a fix or copy, minor for a backwards-compatible feature, major for a broken contract.
 
 - **Verify a merge actually landed on `main`.** A merge reported as successful isn't proof. One PR here was merged against a stale branch head, so a fix that mattered stayed out of `main` for eleven hours while everyone believed it had shipped. After merging, run `git fetch origin main` and check that your commit is really an ancestor — `git merge-base --is-ancestor <sha> origin/main`.
 
