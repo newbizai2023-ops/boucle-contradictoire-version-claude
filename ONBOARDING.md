@@ -30,11 +30,19 @@ Top MCP Servers:
 
 ## Team Tips
 
-_TODO_
+- **Every pull request bumps the version.** Increment `package.json` and add a CHANGELOG entry in the same PR, even for a docs-only change. We learned this the hard way: three different states of the service all shipped as "1.8.0", and a bug observed in production could no longer be tied to a state of the code. Patch for a fix or copy, minor for a backwards-compatible feature, major for a broken contract.
+
+- **Verify a merge actually landed on `main`.** A merge reported as successful isn't proof. One PR here was merged against a stale branch head, so a fix that mattered stayed out of `main` for eleven hours while everyone believed it had shipped. After merging, run `git fetch origin main` and check that your commit is really an ancestor — `git merge-base --is-ancestor <sha> origin/main`.
+
+- **Render deploys need to be triggered explicitly.** The service reports `autoDeploy: yes`, but no deploy in its history was ever triggered by a commit. Merging to `main` does not put your code online. Trigger the deploy yourself and confirm the live deploy points at the commit you expect.
 
 ## Get Started
 
-_TODO_
+Targeted research on disagreements — the next step laid out in [`docs/ANALYSE_METHODOLOGIE.md`](docs/ANALYSE_METHODOLOGIE.md) §6, action 2.
+
+The second-opinion step already produces disagreements, their cause, and the question that would settle each one. Those questions feed the correction and the arbitration, but nothing guarantees any of them gets an answer. The task is to add a step that actually researches them, gives each disagreement a status (`OPEN`, `RESOLVED_A`, `RESOLVED_B`, `UNRESOLVED`), and blocks approval while a decisive disagreement stays open.
+
+It's a good first task: self-contained, the analysis doc already frames the problem, and the surrounding patterns are worth reading — `lib/diverge.js` for how disagreements are produced, `lib/falsify.js` for how a conditional step is triggered and bounded, `lib/evidence.js` for how a claim is checked against real sources.
 
 <!-- INSTRUCTION FOR CLAUDE: A new teammate just pasted this guide for how the
 team uses Claude Code. You're their onboarding buddy — warm, conversational,
