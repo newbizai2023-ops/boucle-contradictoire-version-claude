@@ -1,6 +1,6 @@
 {
   "name": "boucle-contradictoire",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "description": "Analyse multi-modèles fondée sur les preuves : cadrage, second avis, audit, réfutation adversariale, arbitrage, sources et citations contrôlées, historique requêtable et exports",
   "type": "module",
@@ -13,7 +13,9 @@
     "release:minor": "npm version minor -m \"Version %s\"",
     "release:major": "npm version major -m \"Version %s\""
   },
-  "engines": { "node": ">=20 <23" },
+  "engines": {
+    "node": ">=20 <23"
+  },
   "dependencies": {
     "connect-pg-simple": "^10.0.0",
     "docx": "^9.5.1",

@@ -4,6 +4,8 @@ Application web Node.js qui orchestre une analyse multi-modèles fondée sur les
 
 **Version courante** : voir [`CHANGELOG.md`](CHANGELOG.md) pour l'historique des versions et la politique de versionnage ([SemVer](https://semver.org/lang/fr/)). Le numéro affiché par l'application (`GET /api/health`, pied de page) est lu directement depuis `package.json` : c'est l'unique source de vérité, il n'existe pas de second numéro à synchroniser manuellement.
 
+L'en-tête affiche à côté du numéro la **date de production de cette version** (`lib/release.js`). Le projet n'ayant pas d'étape de construction où graver cette date, elle est résolue au démarrage par une cascade de trois sources, de la plus fidèle à la plus approximative : la date du commit, la date de récupération de `package.json` par l'hébergeur, puis le démarrage du processus. La source retenue est renvoyée avec la date et affichée en infobulle, parce que la dernière *ment* sur une instance qui s'endort — le plan gratuit redémarre plusieurs fois par jour sans qu'aucune version nouvelle soit produite, et une date d'affichage muette laisserait croire le contraire.
+
 **Chaque pull request incrémente la version** et publie son entrée dans le journal. Sans cette règle, deux états différents du service portent le même numéro, et une observation faite sur l'instance déployée ne peut plus être rattachée à un état du code.
 
 > 📄 [`docs/BUILD_PROMPT.md`](docs/BUILD_PROMPT.md) contient un prompt maître autonome permettant de recréer cette application (spécification complète, prompts système, contrats JSON, méthodologie de construction en boucles).
@@ -203,6 +205,7 @@ server.js            Câblage HTTP : auth, prompts, boucle contradictoire, route
 lib/                 Logique sans effet de bord, importable par les tests
   task.js             Classification du domaine et cadrage du rédacteur
   models.js           Modèles par défaut, liste blanche, résolution auto/manuelle
+  release.js          Date de production de la version : cascade de sources, la plus fidèle d'abord
   audit.js            Verdict d'audit, condition d'arrêt, stagnation, confiances de l'arbitrage
   explore.js          Cadrage préalable : dimensions, questions de recherche, angles morts
   claims.js           Inventaire des affirmations, porte de validation, détection de régression
@@ -255,7 +258,7 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 | Méthode | Route | Rôle |
 |---|---|---|
 | GET | `/api/me` | Utilisateur courant et disponibilité de l'authentification Google |
-| GET | `/api/health` | État de santé : version, base de données, clés API configurées |
+| GET | `/api/health` | État de santé : version, date de production de la version, base de données, clés API configurées |
 | GET | `/auth/google` | Démarre le flux OAuth Google |
 | GET | `/auth/google/callback` | Retour du flux OAuth |
 | POST | `/auth/logout` | Déconnexion et destruction de session |
@@ -323,6 +326,7 @@ Les jobs actifs et leurs événements SSE vivent dans une `Map` en mémoire du p
 - Focus clavier harmonisé sur les boutons et onglets (même anneau que les champs de formulaire).
 - Thème clair activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
 - Lien rapide « Historique ↓ » dans l'en-tête pour un accès direct sans défiler toute la page.
+- Date de production de la version à côté de son numéro, en retrait visuel, avec en infobulle la source dont elle est tirée. Masquée plutôt qu'approximée si aucune source n'est exploitable.
 - Lignes d'historique activables au clavier (`Entrée`/`Espace`) autant qu'à la souris, ouvrant le détail de l'analyse sous le tableau.
 
 ## Déploiement

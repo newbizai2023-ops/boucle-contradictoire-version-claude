@@ -109,6 +109,26 @@ function renderServerApiStatus(health) {
   if (details && (!health.hasOpenRouterKey || !health.hasFirecrawlKey)) details.open = true;
 }
 
+// Date de production de la version, à côté de son numéro. Le titre dit d'où vient la date : selon
+// l'environnement, c'est le commit, la récupération du dépôt, ou le seul démarrage du service — et
+// cette dernière ne désigne pas la version, seulement le dernier réveil de l'instance.
+function renderReleaseDate(health) {
+  const badge = $('#releaseDate');
+  if (!badge) return;
+  const brut = health.releaseDate;
+  const date = brut ? new Date(brut) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    badge.hidden = true;
+    return;
+  }
+  // Locale imposée, pas celle du navigateur : la page est intégralement en français, et un
+  // visiteur dont le navigateur est en anglais lisait « Aug 9, 2026 » au milieu du reste
+  // (constaté au navigateur réel). Le fuseau, lui, reste celui du lecteur — c'est ce qu'il veut.
+  badge.textContent = date.toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
+  badge.title = health.releaseDatePrecision ? `Version produite — ${health.releaseDatePrecision}` : 'Version produite';
+  badge.hidden = false;
+}
+
 function updateTabsOverflow() {
   const wrap = document.querySelector('.tabs-wrap');
   const tabs = $('.tabs');
@@ -123,6 +143,7 @@ async function init() {
   const releaseLabel = `Release v${health.release || 'inconnue'}`;
   $('#release').textContent = releaseLabel;
   $('#releaseFooter').textContent = releaseLabel;
+  renderReleaseDate(health);
   $('#health').textContent = health.ok ? `Serveur prêt${health.database?' · DB':''}${health.hasFirecrawlKey?' · Firecrawl':''}` : 'Serveur indisponible';
   $('#health').className = `badge ${health.ok?'ok':'warn'}`;
   if (!me.user) {

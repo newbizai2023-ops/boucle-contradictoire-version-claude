@@ -21,6 +21,46 @@ rencontré avec les 1.8.0 successives.
 
 ## [Non publié]
 
+## [1.10.0] - 2026-08-09
+
+### Ajouté
+
+- **Date et heure de production de la version, à côté de son numéro dans l'en-tête.** Le numéro dit
+  *quoi* tourne, pas *depuis quand* : après une fusion, vérifier que l'instance déployée sert bien le
+  nouveau code demandait d'aller lire l'historique des déploiements chez l'hébergeur.
+
+  Le projet n'a pas d'étape de construction où graver cette date. `lib/release.js` la résout donc au
+  chargement du module par une cascade de trois sources, de la plus fidèle à la plus approximative :
+
+  1. la date du dernier commit (`git log -1 --format=%cI`) — littéralement le moment où la version a
+     été produite, et elle ne bouge pas quand le service redémarre ;
+  2. la date de modification de `package.json` — celle de la récupération du dépôt par l'hébergeur,
+     utile quand le dépôt Git n'accompagne pas le déploiement ;
+  3. le démarrage du processus — toujours disponible, mais la seule qui *mente* : le plan gratuit
+     endort l'instance plusieurs fois par jour, et elle affichait alors l'heure du dernier réveil
+     comme si une version venait d'être produite.
+
+  La source retenue accompagne la date (`releaseDateSource`, `releaseDatePrecision` dans
+  `GET /api/health`) et l'interface la reprend en infobulle, précisément pour que le troisième cas
+  se lise comme tel au lieu de passer pour le premier. Les deux premières sources sont lues sur le
+  disque et leur échec est normal selon l'endroit où le service tourne : il est traité comme une
+  absence, jamais comme une erreur. Si aucune n'est exploitable, le badge est masqué — un champ
+  absent vaut mieux qu'une date inventée.
+
+  Date formatée en `fr-FR` explicitement, pas dans la locale du navigateur : la page est
+  intégralement en français, et un navigateur en anglais affichait « Aug 9, 2026 » au milieu du
+  reste (constaté au navigateur réel, comme le reste de cette vérification — badge présent, sans
+  débordement horizontal et sans erreur console à 412 px comme en 1280 px, thèmes clair et sombre,
+  et effectivement masqué quand `/api/health` ne porte pas de date).
+
+- **Contrôle de cohérence sur `/api/health`** (`test/interface.test.js`) : tout champ lu par
+  `public/app.js` sous la forme `health.<champ>` doit exister dans la réponse construite par
+  `server.js`. C'est la classe de bug la plus coûteuse ici — un champ absent vaut `undefined`, le
+  badge se masque, et rien ne signale l'écart. Validé par mutation : retirer `releaseDate` de la
+  route fait bien échouer le test.
+
+  177 tests (171 auparavant).
+
 ## [1.9.0] - 2026-08-09
 
 ### Ajouté
@@ -34,12 +74,16 @@ rencontré avec les 1.8.0 successives.
   ils ne sont choisis automatiquement pour aucun domaine. Les listes de repli du second avis et de
   la réfutation restent inchangées.
 
-  **Identifiants non vérifiés contre le catalogue OpenRouter** : l'environnement qui a produit ce
-  changement n'a pas accès au réseau vers `openrouter.ai`. Ils suivent la convention du dépôt pour
-  les alias suivant la dernière version (`~éditeur/modèle-latest`), celle de `~anthropic/claude-opus-latest`
-  et `~moonshotai/kimi-latest`. Un identifiant erroné ne casse rien au démarrage : il échoue à
-  l'appel, avec le message d'erreur d'OpenRouter, et seulement si un utilisateur choisit ce modèle.
-  À confirmer par `curl -s https://openrouter.ai/api/v1/models`.
+  **Modèles constatés au catalogue, identifiants déduits.** L'environnement qui a produit ce
+  changement n'a pas accès au réseau vers `openrouter.ai` ; la présence des quatre modèles a donc été
+  vérifiée sur une capture du sélecteur de modèles, qui les liste sous ces noms exacts — « DeepSeek V4
+  Flash Latest », « Google Gemini Flash Latest », « Anthropic Claude Haiku Latest », « MoonshotAI
+  Kimi Latest ». Les identifiants, eux, restent déduits de la convention du dépôt pour les alias
+  suivant la dernière version (`~éditeur/modèle-latest`), celle de `~anthropic/claude-opus-latest` et
+  `~moonshotai/kimi-latest` : le nom affiché ne donne pas la casse ni la découpe du slug. Un
+  identifiant erroné ne casse rien au démarrage — il échoue à l'appel, avec le message d'erreur
+  d'OpenRouter, et seulement si un utilisateur choisit ce modèle. Confirmation complète par
+  `curl -s https://openrouter.ai/api/v1/models` depuis un poste qui joint le domaine.
 
 ## [1.8.4] - 2026-08-09
 
