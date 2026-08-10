@@ -6,7 +6,9 @@ import {
   shouldStopAfterAudit,
   unreachableCitedSources,
   stagnationBetween,
-  normalizeArbitration
+  normalizeArbitration,
+  arbitrationStatus,
+  decisionIntelligible
 } from "../lib/audit.js";
 
 /** Audit qui satisfait tous les critères d'arrêt : chaque test n'en dégrade qu'un à la fois. */
@@ -293,4 +295,40 @@ test("normalizeArbitration borne les valeurs aberrantes et tolère un arbitrage 
   assert.deepEqual(normalizeArbitration({ decision: "REJETE" }), { decision: "REJETE" });
   assert.equal(normalizeArbitration({ confiance: "élevée" }).confiance, "élevée", "une valeur inintelligible est laissée telle quelle");
   assert.equal(normalizeArbitration(null), null);
+});
+
+test("arbitrationStatus lit une approbation quelle qu'en soit l'orthographe", () => {
+  // Le bug : la comparaison etait stricte (`decision === "APPROUVE"`). Le contrat JSON demande
+  // `APPROUVE` sans accent, mais « approuve » s'ecrit avec, et un arbitre qui redige en francais
+  // repond naturellement `APPROUVE`. Son approbation etait alors enregistree comme un rejet.
+  for (const decision of ["APPROUVE", "APPROUVE", "approuve", "Approuve", "  approuve  "]) {
+    assert.equal(arbitrationStatus(decision), "validated", `${decision} devrait valoir validation`);
+  }
+});
+
+test("arbitrationStatus reconnait les reserves malgre les separateurs", () => {
+  // Les separateurs comptent autant que les accents : le contrat demande APPROUVE_AVEC_RESERVES,
+  // un modele qui redige ecrit « Approuve avec reserves ». Les deux disent la meme chose.
+  for (const decision of ["APPROUVE_AVEC_RESERVES", "Approuve avec reserves", "approuve-avec-reserve", "APPROUVE AVEC RESERVE"]) {
+    assert.equal(arbitrationStatus(decision), "validated_with_reservations", `${decision} devrait valoir reserves`);
+  }
+});
+
+test("arbitrationStatus rejette tout ce qui n'est pas une approbation", () => {
+  // Une decision absente ou inintelligible ne vaut pas approbation : un modele qui omet le champ
+  // ferait sinon valider n'importe quel document.
+  for (const decision of ["REJETE", "Rejete", "Approuve sous condition majeure", "peut-etre", "", null, undefined, 42]) {
+    assert.equal(arbitrationStatus(decision), "rejected_by_arbiter", `${JSON.stringify(decision)} devrait valoir rejet`);
+  }
+});
+
+test("decisionIntelligible distingue un rejet motive d'une decision non reconnue", () => {
+  // Les deux menent au meme statut ; seule cette fonction permet de le dire a l'utilisateur, au lieu
+  // de laisser une faute de forme de l'arbitre passer pour un rejet argumente.
+  for (const decision of ["APPROUVE", "Approuve avec reserves", "REJETE", "Rejete"]) {
+    assert.ok(decisionIntelligible(decision), `${decision} devrait etre reconnue`);
+  }
+  for (const decision of ["", null, undefined, "sous reserve", "REJETE_AVEC_MOTIFS"]) {
+    assert.ok(!decisionIntelligible(decision), `${JSON.stringify(decision)} ne devrait pas etre reconnue`);
+  }
 });

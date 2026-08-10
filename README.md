@@ -287,6 +287,8 @@ Sans base configurée, aucune table n'est créée : l'authentification Google re
 13. Historise l'exécution si une base est configurée — ligne de synthèse, détail jsonb et lignes normalisées, en une transaction — puis diffuse l'événement `complete`. Un échec d'écriture est signalé mais ne fait pas échouer l'analyse : le résultat est publié dans tous les cas, et le champ `persisted` indique s'il a bien été enregistré.
 14. Journalise une ligne de fin (`[job] fin …`) résumant statut, cycles, score, arbitrage, sources, appels, tokens, coût, taille du document, durée et historisation. Une analyse interrompue produit une ligne `[job] échec …` et est historisée avec `status='error'`, son document déjà rédigé et ses cycles déjà consommés.
 
+L'analyse est aussi **enregistrée en cours de route**, à deux moments : dès la première version rédigée, puis à la fin de chaque cycle d'audit. Ces points de reprise portent `status='interrupted'` et sont remplacés par le statut réel à l'écriture finale — une ligne restée `interrupted` désigne donc une analyse dont le processus a disparu avant la fin. C'est le seul filet contre la disparition du processus lui-même : le gestionnaire d'erreur ne se déclenche que si la promesse est rejetée, jamais si l'instance est recyclée, et la boucle dure de dix à vingt minutes. Sans ces points de reprise, une analyse tuée en vol ne laissait aucune trace — ni document, ni cycles, ni le coût déjà engagé.
+
 À chaque étape, un événement est diffusé en SSE pour alimenter le fil de suivi de l'interface.
 
 ### Diffusion temps réel (SSE)
@@ -726,7 +728,10 @@ Dans l’interface :
 
 - **Analyses passées** : chaque ligne indique statut, score final, cycles, sources contrôlées et
   coût ; la sélectionner ouvre le détail complet (document, arbitrage, scores par cycle, sources,
-  consommation, liens d’export).
+  consommation, liens d’export). La liste est celle du serveur, et rien d’autre : un cache local
+  sert à peindre le tableau avant que le réseau réponde, mais il ne complète jamais la réponse
+  reçue. Il l’a fait jusqu’à la 1.11.0, et les analyses jamais historisées restaient alors affichées
+  indéfiniment, avec un statut que le serveur n’avait jamais enregistré.
 - **Données historisées** : agrégats sur l’ensemble des analyses, en quatre onglets — vue
   d’ensemble (validées, rejetées, en échec, score et cycles moyens, durée, coût), sources
   (répartition par état et par catégorie, domaines les plus cités avec leur taux d’accessibilité

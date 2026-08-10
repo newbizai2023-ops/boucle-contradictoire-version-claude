@@ -20,7 +20,9 @@ function showRequestSummary(text){
 const HISTORY_CACHE_KEY = 'boucleHistoryCache';
 function readHistoryCache(){ try { return JSON.parse(localStorage.getItem(HISTORY_CACHE_KEY) || '[]'); } catch { return []; } }
 function writeHistoryCache(runs){ try { localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify((runs || []).slice(0,100))); } catch {} }
-function rememberRun(run){ const cached=readHistoryCache(); const merged=[run,...cached.filter(item=>item.id!==run.id)]; writeHistoryCache(merged); }
+// `rememberRun` a été retirée : définie mais jamais appelée depuis son introduction, elle laissait
+// croire que le client alimentait le cache avec les analyses qu'il voyait finir. Seul `loadHistory`
+// l'écrit, à partir de la réponse du serveur.
 const dateLabel = value => new Date(value || Date.now()).toLocaleString();
 const scoreLabel = run => run.final_score ?? run.audits?.at(-1)?.score_global ?? '—';
 const sourcesLabel = run => (run.sources_total == null ? (run.sources?.length ?? '—') : `${run.sources_accessible ?? 0}/${run.sources_total}`);
@@ -584,7 +586,23 @@ $('#runDetail').addEventListener('click', event => {
   if (event.target.id === 'closeRunDetail') { $('#runDetail').hidden = true; $('#runDetail').innerHTML = ''; }
 });
 
-async function loadHistory(){ const cached=readHistoryCache(); if(cached.length) $('#historyList').innerHTML=historyRows(cached); const {runs}=await json('/api/history'); const merged=[...(runs||[]),...cached.filter(c=>!(runs||[]).some(r=>r.id===c.id))].sort((a,b)=>new Date(b.created_at||b.createdAt||0)-new Date(a.created_at||a.createdAt||0)); writeHistoryCache(merged); $('#historyList').innerHTML=historyRows(merged); }
+// Le cache local sert à peindre l'historique avant que le réseau réponde, et à ne pas laisser la
+// page vide si le serveur est injoignable. Il ne fait pas autorité : la réponse du serveur le
+// remplace entièrement.
+//
+// Il fusionnait auparavant les lignes que le serveur ne renvoyait plus, ce qui les rendait
+// définitives — une analyse jamais historisée (instance recyclée en cours de route) restait affichée
+// pour toujours, avec un statut que le serveur n'a jamais enregistré et des colonnes vides, sans
+// rien qui la distingue d'une vraie ligne d'historique. L'historique doit montrer ce qui est
+// enregistré, pas ce que ce navigateur a cru voir.
+async function loadHistory(){
+  const cached=readHistoryCache();
+  if(cached.length) $('#historyList').innerHTML=historyRows(cached);
+  const {runs}=await json('/api/history');
+  const enregistrees=runs||[];
+  writeHistoryCache(enregistrees);
+  $('#historyList').innerHTML=historyRows(enregistrees);
+}
 // ---------------------------------------------------------------------------
 // Données historisées : agrégats sur l'ensemble des analyses enregistrées.
 // ---------------------------------------------------------------------------
@@ -602,6 +620,7 @@ function renderAnalyticsOverview(a){
       <article><span>Validées</span><strong>${nombre(t.validated)}</strong></article>
       <article><span>Rejetées</span><strong>${nombre(t.rejected)}</strong></article>
       <article><span>En échec</span><strong>${nombre(t.errors)}</strong></article>
+      <article><span>Interrompues</span><strong>${nombre(t.interrupted)}</strong></article>
       <article><span>Score moyen</span><strong>${esc(String(t.avgScore ?? '—'))}</strong></article>
       <article><span>Cycles moyens</span><strong>${esc(String(t.avgCycles ?? '—'))}</strong></article>
       <article><span>Durée moyenne</span><strong>${t.avgDurationSec == null ? '—' : `${esc(String(t.avgDurationSec))} s`}</strong></article>

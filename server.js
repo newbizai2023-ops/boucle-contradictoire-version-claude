@@ -29,7 +29,7 @@ import { extractUrls, annotationSources, sourceClass, sourceBudget } from "./lib
 import { validateClaims, validateContradiction, downgradedClaims } from "./lib/evidence.js";
 import { buildDashboard } from "./lib/dashboard.js";
 import { cycleProgress, PROGRESS_EXPLORE, PROGRESS_DRAFT, PROGRESS_CHALLENGER, PROGRESS_DIVERGENCE, PROGRESS_FALSIFY, PROGRESS_ARBITER, PROGRESS_COMPLETE } from "./lib/progress.js";
-import { shouldStopAfterAudit, stagnationBetween, normalizeArbitration } from "./lib/audit.js";
+import { shouldStopAfterAudit, stagnationBetween, normalizeArbitration, arbitrationStatus, decisionIntelligible } from "./lib/audit.js";
 import { explorerSystem, explorePrompt, normalizeExploration, exploreBrief, exploreSummary } from "./lib/explore.js";
 import { normalizeClaims, claimRegressions, claimStats, claimsBrief } from "./lib/claims.js";
 import { falsifierSystem, shouldFalsify, falsifyPrompt, normalizeFalsification, falsificationUrls, confirmedContradictions, falsifySummary } from "./lib/falsify.js";
@@ -760,6 +760,41 @@ async function insertRows(client, table, rows, chunkSize = 200) {
   }
 }
 
+/** Enregistre l'etat courant d'une analyse encore en cours, pour qu'elle survive a la disparition
+ *  du processus.
+ *
+ *  La boucle dure 13 a 19 minutes et ne gardait son etat qu'en memoire jusqu'a l'ecriture finale.
+ *  Sur le plan gratuit, l'instance est recyclee bien avant : le 8 aout, 18 analyses ont ete lancees
+ *  et 2 seulement ont atteint leur ligne de fin. Les 16 autres n'ont laisse aucune trace — ni
+ *  document, ni cycles, ni le cout deja engage, qui se comptait en dollars par analyse. Le
+ *  gestionnaire d'erreur ne les rattrapait pas non plus : il ne se declenche que si la promesse est
+ *  rejetee, pas si le processus est tue.
+ *
+ *  Le statut ecrit est `interrupted` et non `running` : une ligne lue en base decrit ce qui a
+ *  survecu, et ce qui survit d'une analyse inachevee est bien une interruption. L'ecriture finale la
+ *  remplace par le statut reel, si bien qu'une ligne restee `interrupted` l'a vraiment ete — alors
+ *  qu'un `running` jamais mis a jour resterait indefiniment lisible comme une analyse en cours.
+ *
+ *  Un echec de point de reprise n'interrompt jamais l'analyse : il est journalise et la boucle
+ *  continue, exactement comme l'ecriture finale. */
+async function saveCheckpoint(job, userId, { request, task, models, startedAt }) {
+  if (!pool || !job.partial) return;
+  const { result } = job.partial;
+  try {
+    // `finalDocument` n'est renseigne qu'a la toute fin : sans cette promotion, le point de reprise
+    // enregistrait le cout et les cycles mais pas le texte deja produit — soit precisement ce que
+    // l'utilisateur voudrait recuperer d'une analyse interrompue.
+    await saveRun(userId, {
+      ...result,
+      status: "interrupted",
+      finalDocument: result.finalDocument || result.versions?.at(-1)?.content || null,
+      stopReason: result.stopReason || "Analyse interrompue avant sa fin : etat enregistre au dernier point de reprise."
+    }, { request, task, models, durationMs: Date.now() - startedAt });
+  } catch (error) {
+    console.error(`[db] Point de reprise ${result.id} non enregistre : ${error.message}`);
+  }
+}
+
 /** Historise une execution : la ligne de synthese, le detail jsonb, puis les lignes normalisees
  *  (sources, audits, appels) qui rendent ces donnees requetables.
  *
@@ -941,6 +976,9 @@ async function executeJob(job, user, body) {
   result.calls.push({ role: "redaction", ...first });
   result.totalCost += first.usage.cost;
   emit(job, "insight", { category: "draft", cycle: 0, message: `Le rédacteur a produit une première version de ${document.length.toLocaleString("fr-FR")} caractères.`, details: { model: first.model, citations: first.annotations?.length || 0 } });
+  // Premier point de reprise : a partir d'ici il existe un document paye, qui doit survivre meme si
+  // l'instance disparait avant la fin de la boucle.
+  await saveCheckpoint(job, user.id, { request, task, models, startedAt });
 
   // DIVERSIFY — une seconde lecture, indépendante, du même sujet.
   //
@@ -1031,6 +1069,9 @@ async function executeJob(job, user, body) {
     result.audits.push({ cycle, ...audit, claims, regressions });
     result.calls.push({ role: "audit", ...auditCall });
     result.totalCost += auditCall.usage.cost;
+    // Un cycle complet vient d'etre paye : sources verifiees, audit rendu, affirmations inventoriees.
+    // C'est l'unite de travail qu'il serait le plus couteux de reperdre.
+    await saveCheckpoint(job, user.id, { request, task, models, startedAt });
 
     // Ce que la réécriture intégrale du document pouvait faire perdre en silence : une affirmation
     // établie au cycle précédent, absente ou dégradée au cycle courant. Le rapprochement se fait
@@ -1206,7 +1247,16 @@ JSON attendu : {"decision":"APPROUVE|APPROUVE_AVEC_RESERVES|REJETE","confiance":
   });
 
   result.finalDocument = document;
-  result.status = arbitration.decision === "APPROUVE" ? "validated" : arbitration.decision === "APPROUVE_AVEC_RESERVES" ? "validated_with_reservations" : "rejected_by_arbiter";
+  result.status = arbitrationStatus(arbitration.decision);
+  // Une décision que le code ne reconnaît pas est traitée comme un rejet — mais dire lequel des deux
+  // a eu lieu importe : sans cette trace, une simple faute de forme de l'arbitre était indiscernable
+  // d'un rejet motivé, aussi bien dans le fil de suivi que dans l'historique.
+  if (!decisionIntelligible(arbitration.decision)) {
+    emit(job, "insight", {
+      category: "arbitration",
+      message: `Décision d'arbitrage non reconnue (${arbitration.decision ?? "absente"}) : traitée comme un rejet.`
+    });
+  }
   result.stopReason = result.stopReason || `Décision de l'arbitre : ${arbitration.decision}`;
 
   // Une contradiction grave, sourcée et dont la page a réellement été extraite est le fait le plus

@@ -243,7 +243,12 @@ pre { white-space: pre-wrap; word-break: break-word; max-height: 650px; overflow
    radio occupe toute la ligne et repousse son libellé à l'autre bout. */
 .radio-row input { width: auto; flex: 0 0 auto; margin: 0; accent-color: var(--primary); }
 .radio-row label { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 0; cursor: pointer; font-weight: 650; }
-.radio-row small { color: var(--muted); font-weight: 400; }
+/* `small { display: block }` (règle globale, plus haut) s'applique aussi au complément qui suit le
+   libellé d'un bouton radio : « Automatique <small>juridique et financier</small> » passait donc à
+   la ligne, et comme le label est un flex `align-items: center`, le bouton se centrait sur les deux
+   lignes — il flottait à mi-hauteur, à l'écart de son texte. Le complément est une incise, pas un
+   bloc : il reste sur la ligne. */
+.radio-row small { display: inline; margin-top: 0; color: var(--muted); font-weight: 400; }
 
 /* Raison d'arrêt de la boucle : lue à froid, elle explique pourquoi l'analyse s'est arrêtée là. */
 .stop-reason { margin: -6px 0 16px; padding: 11px 14px; border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, transparent); font-size: .85rem; color: var(--muted); }
