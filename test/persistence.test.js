@@ -40,7 +40,7 @@ const resultat = {
   ],
   calls: [
     { role: "redaction", model: "~anthropic/claude-opus-latest", usage: { prompt_tokens: 100, completion_tokens: 40, cost: 0.2 }, finishReason: "stop" },
-    { role: "audit", model: "openai/gpt-5.6-sol", usage: { prompt_tokens: 30, completion_tokens: 10, cost: 0.05 }, fallbackFrom: "~moonshotai/kimi-latest" }
+    { role: "audit", model: "openai/gpt-5.6-sol", usage: { prompt_tokens: 30, completion_tokens: 10, cost: 0.05 }, fallbackFrom: "~google/gemini-flash-latest" }
   ]
 };
 
@@ -99,7 +99,7 @@ test("callRows conserve la trace d'une bascule vers le modèle de repli", () => 
   const rows = callRows(RUN, resultat.calls);
   assert.deepEqual(rows.map(row => row.seq), [1, 2]);
   assert.equal(rows[0].model, "~anthropic/claude-opus-latest");
-  assert.equal(rows[1].fallback_from, "~moonshotai/kimi-latest");
+  assert.equal(rows[1].fallback_from, "~google/gemini-flash-latest");
   assert.equal(rows[0].fallback_from, null);
   assert.equal(rows[1].cost, 0.05);
 });

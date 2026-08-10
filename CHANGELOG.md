@@ -25,6 +25,55 @@ forte encore sans étape de pull request pour rappeler l'incrément.
 
 ## [Non publié]
 
+## [1.11.3] - 2026-08-10
+
+### Supprimé
+
+- **Kimi retiré des modèles proposés.** Il disparaît de `MODEL_LABELS`, donc de la liste blanche
+  `ALLOWED_MODELS`, et des trois sélecteurs du formulaire — qui passent de neuf à huit options.
+
+  Il était le **falsificateur par défaut des cinq domaines** : la réfutation revient à Gemini Flash.
+  Ce n'est pas un simple remplacement de nom. Les cinq rôles couvrent désormais **quatre éditeurs
+  distincts** — Anthropic pour la rédaction, OpenAI pour l'audit et le second avis, x-ai pour
+  l'arbitrage, Google pour la réfutation. Le commentaire de `lib/models.js` regrettait justement de
+  ne pouvoir garantir l'indépendance qu'au niveau du modèle, « faute d'un quatrième fournisseur dans
+  la liste blanche » ; ce n'est plus le cas.
+
+  Contrepartie assumée et consignée dans le code : Gemini Flash est un modèle léger, là où la
+  réfutation est l'étape la plus exigeante du dispositif. C'est le seul candidat dont les journaux du
+  service aient montré le bon fonctionnement — appelé à 17:05:18 le 10 août, il a répondu en treize
+  secondes, quand Kimi avec recherche web a épuisé les quatre minutes du délai d'expiration pour ne
+  rien renvoyer. À revoir si ses réfutations se révèlent pauvres.
+
+  Les listes de repli sont mises à jour en conséquence : la réfutation retombe sur DeepSeek V4 Flash
+  puis GPT-5.6 Terra, le second avis sur Gemini Flash en dernier recours.
+
+### Ajouté
+
+- **`RETIRED_MODEL_LABELS` : un modèle retiré reste lisible dans l'historique.** `ALLOWED_MODELS`
+  étant dérivée de `MODEL_LABELS`, en retirer Kimi aurait fait afficher « moonshotai/kimi-latest » à
+  la place de son nom dans toutes les analyses qui l'ont réellement employé. Le libellé est donc
+  conservé dans une table séparée, que `modelLabel` consulte mais dont la liste blanche ne dérive
+  pas : le retrait vaut pour l'avenir, il ne réécrit pas ce qui a tourné.
+
+- **Un contrôle que tout modèle atteignable est autorisé** (`test/models.test.js`). Le vrai risque
+  d'un retrait est d'en oublier une occurrence dans `MODEL_DEFAULTS` ou dans une liste de repli : la
+  sélection échouerait alors à la validation, après le 202, donc tardivement et seulement dans le
+  flux d'événements. Le test parcourt les cinq domaines, puis chaque collision possible entre un
+  modèle autorisé et les rôles rédacteur ou arbitre, et vérifie que le second avis comme la
+  réfutation retombent toujours sur un modèle de la liste blanche.
+
+  Validé par mutation : remettre Kimi comme falsificateur d'un seul domaine fait échouer trois tests.
+
+  183 tests (181 auparavant).
+
+### Vérifié
+
+  Au navigateur réel : les trois sélecteurs affichent huit options, sans Kimi. Sur le serveur, une
+  demande portant `writerModel=~moonshotai/kimi-latest` échoue sur « Modèle rédacteur invalide ou non
+  autorisé », là où `~google/gemini-flash-latest` passe la validation et va jusqu'à l'appel réseau —
+  le refus vient donc bien de la liste blanche, pas du formulaire.
+
 ## [1.11.2] - 2026-08-10
 
 ### Modifié

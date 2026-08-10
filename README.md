@@ -412,9 +412,13 @@ La progression est diffusée en temps réel par Server-Sent Events et affichée 
 | Recherche actuelle | Claude Sonnet latest | GPT-5.6 Sol | Grok latest | GPT |
 | Analyse générale | Claude Sonnet latest | GPT latest | Grok latest | GPT-5.6 Terra |
 
-Un cinquième rôle, **réfutation**, mène la recherche adversariale : Kimi par défaut sur tous les domaines. Il était confié à l'arbitre jusqu'en 1.7.0, ce qui revenait à lui faire chercher les contradictions puis juger ses propres trouvailles — sur l'élément de preuve le plus lourd du dispositif, celui qui peut dégrader un `APPROUVE`.
+Un cinquième rôle, **réfutation**, mène la recherche adversariale : Gemini Flash par défaut sur tous les domaines. Il était confié à l'arbitre jusqu'en 1.7.0, ce qui revenait à lui faire chercher les contradictions puis juger ses propres trouvailles — sur l'élément de preuve le plus lourd du dispositif, celui qui peut dégrader un `APPROUVE`.
 
-Modèles proposés en sélection manuelle, pour chacun des trois rôles réglables : Claude Opus, Claude Sonnet, Claude Haiku, GPT-5.6 Sol, GPT-5.6 Terra, Kimi, Grok, Gemini Flash et DeepSeek V4 Flash. La liste blanche `ALLOWED_MODELS` (dérivée de `MODEL_LABELS`) fait foi côté serveur : le `<select>` de l’interface n’est pas une protection, puisque la clé du déploiement prime sur celle de l’utilisateur.
+Les cinq rôles couvrent désormais **quatre éditeurs distincts** — Anthropic pour la rédaction, OpenAI pour l'audit et le second avis, x-ai pour l'arbitrage, Google pour la réfutation. L'indépendance vaut donc au niveau de l'éditeur, et plus seulement à celui du modèle comme c'était le cas tant que la liste blanche ne comptait que trois fournisseurs.
+
+Modèles proposés en sélection manuelle, pour chacun des trois rôles réglables : Claude Opus, Claude Sonnet, Claude Haiku, GPT-5.6 Sol, GPT-5.6 Terra, Grok, Gemini Flash et DeepSeek V4 Flash. La liste blanche `ALLOWED_MODELS` (dérivée de `MODEL_LABELS`) fait foi côté serveur : le `<select>` de l’interface n’est pas une protection, puisque la clé du déploiement prime sur celle de l’utilisateur.
+
+Un modèle retiré du choix garde son libellé (`RETIRED_MODEL_LABELS`) sans revenir dans la liste blanche : les analyses qui l’ont réellement employé restent lisibles dans l’historique, le retrait ne valant que pour l’avenir. Kimi, retiré en 1.11.3, est le premier dans ce cas.
 
 Les modèles peuvent être sélectionnés manuellement dans l’interface. Le modèle du second avis n’est sollicité que lorsque cette étape est déclenchée ; il est toujours résolu vers un modèle différent du rédacteur **et** de l’arbitre, y compris en sélection manuelle — un second avis rendu par le rédacteur n’en serait pas un, et un arbitre qui a co-rédigé ne peut plus juger.
 
