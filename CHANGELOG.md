@@ -25,6 +25,36 @@ forte encore sans étape de pull request pour rappeler l'incrément.
 
 ## [Non publié]
 
+## [1.11.2] - 2026-08-10
+
+### Modifié
+
+- **Le formulaire et le bandeau d'état ont désormais la même largeur sur ordinateur.** Tant qu'aucune
+  analyse n'est affichée, la colonne de droite de la grille est vide : le formulaire n'occupait que
+  38 % de la largeur sous un bandeau « État des services » qui, lui, la prend toute — deux blocs de
+  largeurs différentes et un grand vide à droite. Il s'étend maintenant sur toute la grille, et
+  revient en colonne dès que le panneau de résultats apparaît, là où l'espace est réellement occupé.
+
+  Mesuré au navigateur réel : formulaire et bandeau à 1248 px (1280), 1408 px (1440), 1450 px (1920),
+  744 px (tablette) et 396 px (mobile), tous au même bord gauche. Sans la règle, le formulaire
+  retombe à 470 et 532 px — c'est la mutation qui le confirme. La bascule fonctionne : 1408 px seul,
+  532/856 px dès que les résultats s'affichent.
+
+  La condition s'écrit `main:has(> #resultsPanel[hidden])`, sans classe posée en JavaScript :
+  l'état est déjà porté par l'attribut `hidden` du panneau de résultats, et un second marqueur à
+  tenir synchronisé serait une occasion de plus de les voir diverger. Sur un navigateur sans
+  `:has()`, la règle est ignorée et la disposition en deux colonnes d'avant reste en place — la
+  dégradation est silencieuse mais pas cassante.
+
+### Ajouté
+
+- **Un intitulé nomme chaque panneau**, en capitales et en vert, en haut à gauche. Tous en avaient un
+  sauf le formulaire, qui reçoit « NOUVELLE ANALYSE » et le titre « Lancer une boucle ». Il réutilise
+  la classe `.eyebrow` déjà employée par « ÉTAT DES SERVICES », « TRAITEMENT EN COURS »,
+  « HISTORIQUE » et « DONNÉES HISTORISÉES », plutôt qu'un style parallèle : couleur `--accent`,
+  vérifiée à `rgb(14, 154, 134)` en thème clair, à 22 px du bord gauche du panneau dont le
+  remplissage est de 21 px.
+
 ## [1.11.1] - 2026-08-10
 
 ### Corrigé

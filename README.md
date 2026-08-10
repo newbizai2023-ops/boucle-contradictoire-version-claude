@@ -329,6 +329,8 @@ Les jobs actifs et leurs événements SSE vivent dans une `Map` en mémoire du p
 - Thème clair activé automatiquement selon la préférence système (`prefers-color-scheme`), sans bascule manuelle.
 - Lien rapide « Historique ↓ » dans l'en-tête pour un accès direct sans défiler toute la page.
 - Date de production de la version à côté de son numéro, en retrait visuel, avec en infobulle la source dont elle est tirée. Masquée plutôt qu'approximée si aucune source n'est exploitable.
+- Chaque panneau porte en haut à gauche un intitulé court en capitales et en vert (`.eyebrow`) qui le nomme : « ÉTAT DES SERVICES », « NOUVELLE ANALYSE », « TRAITEMENT EN COURS », « HISTORIQUE », « DONNÉES HISTORISÉES ».
+- Sur ordinateur, le formulaire occupe toute la largeur tant qu'aucune analyse n'est affichée — donc la même que le bandeau d'état au-dessus — et repasse en colonne dès que le panneau de résultats apparaît à sa droite.
 - Lignes d'historique activables au clavier (`Entrée`/`Espace`) autant qu'à la souris, ouvrant le détail de l'analyse sous le tableau.
 
 ## Déploiement

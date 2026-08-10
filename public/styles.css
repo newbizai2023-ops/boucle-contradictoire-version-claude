@@ -105,6 +105,16 @@ main { display: grid; grid-template-columns: minmax(360px, .9fr) minmax(0, 1.45f
    Le point de bascule mobile annulait déjà ce `sticky` : le défaut ne se voyait donc que sur
    ordinateur, ce qui explique qu'il ait survécu si longtemps. */
 .results-panel { min-height: 460px; }
+
+/* Tant qu'aucune analyse n'est affichée, la colonne de droite est vide : le formulaire n'occupait
+   que 38 % de la largeur, sous un bandeau « État des services » qui, lui, la prend toute — deux
+   blocs de largeurs différentes et un grand vide à droite. Il s'étend donc sur toute la grille, et
+   revient en colonne dès que le panneau de résultats apparaît, là où l'espace est réellement
+   occupé.
+   `:has()` plutôt qu'une classe posée en JS : l'état est déjà porté par l'attribut `hidden` du
+   panneau de résultats, et un second marqueur à tenir synchronisé serait une occasion de plus de
+   les voir diverger. */
+main:has(> #resultsPanel[hidden]) > .form-panel { grid-column: 1 / -1; }
 .full { grid-column: 1 / -1; }
 
 .section-title, .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
