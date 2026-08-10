@@ -13,13 +13,60 @@ Le numéro de version affiché par l'application (`GET /api/health`, pied de pag
 depuis `package.json` (`server.js`) — il n'existe qu'une seule source de vérité, pour éviter toute
 désynchronisation entre le code et le numéro affiché.
 
-**Chaque pull request incrémente la version** et publie son entrée ici, plutôt que de s'accumuler
-en « Non publié ». Le déploiement affiche donc toujours un numéro qui désigne exactement ce qui
-tourne : sans cette règle, deux états différents du service portent le même numéro, et une
+**Chaque poussée sur `main` incrémente la version** et publie son entrée ici, plutôt que de
+s'accumuler en « Non publié ». Le déploiement affiche donc toujours un numéro qui désigne exactement
+ce qui tourne : sans cette règle, deux états différents du service portent le même numéro, et une
 observation faite sur l'instance déployée devient impossible à rattacher à un état du code — cas
 rencontré avec les 1.8.0 successives.
 
+Le travail se fait directement sur `main`, seule branche du dépôt. La règle s'énonçait « chaque pull
+request » à l'époque des branches de développement ; le motif est le même, et l'exigence est plus
+forte encore sans étape de pull request pour rappeler l'incrément.
+
 ## [Non publié]
+
+## [1.11.1] - 2026-08-10
+
+### Corrigé
+
+- **Le panneau du formulaire recouvrait l'historique et les données historisées, sur ordinateur.**
+  `.form-panel` était en `position: sticky`. Or le bloc conteneur d'un élément collant placé dans une
+  grille est ici le conteneur de grille entier, pas la seule rangée qu'il occupe : le panneau
+  disposait d'environ mille pixels de débattement et glissait par-dessus les rangées suivantes.
+  Mesuré au navigateur réel : **301 172 px² de recouvrement** à 1440x900, autant à 1920x1080 et
+  266 460 px² à 1280x800, le panneau couvrant intégralement la hauteur de « Données historisées ».
+  Les panneaux étant opaques à 94 %, le texte du dessous transparaissait — d'où l'impression de deux
+  fenêtres superposées.
+
+  Le point de bascule mobile annulait déjà ce `sticky` (`position: static`), ce qui explique que le
+  défaut ne se voyait que sur ordinateur et ait survécu si longtemps.
+
+  Le rendre collant n'apportait de toute façon rien : le panneau mesure environ 1650 px de haut, plus
+  que n'importe quelle fenêtre, et un élément collant plus haut que la fenêtre ne montre jamais son
+  bas — le bouton « Lancer la boucle » restait hors de vue. La déclaration est retirée, ainsi que son
+  annulation devenue inutile dans la requête média.
+
+  Après correction : **0 px² de recouvrement** à 412, 768, 1280, 1440 et 1920 px de large, sans
+  débordement horizontal.
+
+- **Dates et horodatages affichés dans la locale du navigateur.** L'historique montrait
+  « 8/10/2026, 3:32:01 PM » sur un navigateur en anglais, au milieu d'une interface intégralement en
+  français — avec le jour et le mois inversés par rapport à la lecture attendue, ce qui rend la date
+  non seulement incongrue mais ambiguë. `dateLabel` et `nowLabel` fixent désormais `fr-FR`, comme la
+  date de version depuis la 1.10.0 et comme `nombre` le faisait déjà. Le fuseau reste celui du
+  lecteur.
+
+### Modifié
+
+- **Le travail se fait directement sur `main`**, seule branche du dépôt : plus de branche de
+  développement ni de pull request. La règle de versionnage est reformulée en conséquence —
+  **chaque poussée sur `main` incrémente la version** et publie son entrée ici. Le motif ne change
+  pas, et l'exigence est plus forte : il n'y a plus d'étape de pull request pour rappeler
+  l'incrément, et une poussée est immédiatement déployable. Consigné dans `CLAUDE.md` et en tête de
+  ce fichier.
+
+  Les mentions de « pull request » dans les entrées antérieures ne sont pas retouchées : ce sont des
+  constats historiques, pas des règles.
 
 ## [1.11.0] - 2026-08-09
 

@@ -92,7 +92,18 @@ p { color: var(--muted); line-height: 1.55; }
 
 main { display: grid; grid-template-columns: minmax(360px, .9fr) minmax(0, 1.45fr); gap: 20px; align-items: start; }
 .panel { background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: 22px; padding: 21px; box-shadow: 0 24px 70px rgba(0, 0, 0, .28); }
-.form-panel { position: sticky; top: 16px; }
+/* Volontairement pas `position: sticky`.
+   Le formulaire est un élément de grille ; le bloc conteneur d'un `sticky` est ici le conteneur de
+   grille entier, pas la seule rangée qu'il occupe. Il disposait donc d'environ mille pixels de
+   débattement et glissait par-dessus les rangées suivantes — « Analyses passées » et « Données
+   historisées » — qu'il recouvrait intégralement (mesuré à 301 172 px² à 1440x900, et autant à
+   1280 et 1920). Les panneaux étant opaques à 94 %, le texte du dessous transparaissait, ce qui
+   donnait deux fenêtres superposées.
+   Le rendre collant ne servait de toute façon à rien : le panneau mesure environ 1650 px de haut,
+   soit plus que n'importe quelle fenêtre, et un élément collant plus haut que la fenêtre ne peut
+   jamais montrer son bas — le bouton « Lancer la boucle » restait hors de vue.
+   Le point de bascule mobile annulait déjà ce `sticky` : le défaut ne se voyait donc que sur
+   ordinateur, ce qui explique qu'il ait survécu si longtemps. */
 .results-panel { min-height: 460px; }
 .full { grid-column: 1 / -1; }
 
@@ -337,7 +348,6 @@ footer { padding: 26px 0 40px; color: var(--muted); text-align: center; font-siz
 @media (max-width: 980px) {
   body > header, body > main, body > footer, body > section { width: min(100% - 24px, 900px); }
   main { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .form-panel { position: static; top: auto; }
   .results-panel { min-height: 360px; }
   .full { grid-column: auto; }
   .how-it-works-steps { grid-template-columns: 1fr; }

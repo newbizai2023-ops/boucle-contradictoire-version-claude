@@ -23,7 +23,11 @@ function writeHistoryCache(runs){ try { localStorage.setItem(HISTORY_CACHE_KEY, 
 // `rememberRun` a été retirée : définie mais jamais appelée depuis son introduction, elle laissait
 // croire que le client alimentait le cache avec les analyses qu'il voyait finir. Seul `loadHistory`
 // l'écrit, à partir de la réponse du serveur.
-const dateLabel = value => new Date(value || Date.now()).toLocaleString();
+// Locale imposée, comme pour la date de version : sur un navigateur en anglais, l'historique
+// affichait « 8/10/2026, 3:32:01 PM » au milieu d'une interface intégralement en français — et le
+// jour et le mois y sont inversés par rapport à la lecture attendue. Le fuseau reste celui du
+// lecteur, lui.
+const dateLabel = value => new Date(value || Date.now()).toLocaleString('fr-FR');
 const scoreLabel = run => run.final_score ?? run.audits?.at(-1)?.score_global ?? '—';
 const sourcesLabel = run => (run.sources_total == null ? (run.sources?.length ?? '—') : `${run.sources_accessible ?? 0}/${run.sources_total}`);
 function historyRows(runs){
@@ -249,7 +253,9 @@ function insightStepKey(payload){
   if (PAIRED_STEPS.includes(payload.category)) return stepKey(payload.category, payload.cycle);
   return null;
 }
-function nowLabel(){ return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+// Même raison que `dateLabel` : sans locale imposée, l'horodatage du fil de suivi passait en 12 h
+// avec AM/PM sur un navigateur en anglais.
+function nowLabel(){ return new Date().toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
 function feedItemInner(kind, time, message, details){
   const showCategory = !['start','complete','error','source-ping','progress'].includes(kind);
   const category = showCategory ? `<span class="feed-category">${esc(kind)}</span>` : '';

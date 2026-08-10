@@ -41,10 +41,16 @@ par responsabilité ; chacun est couvert soit par son propre fichier de test, so
 - **Tout en français** : code, commentaires, messages d'erreur, journaux, interface.
 - **Les commentaires expliquent le *pourquoi*, pas le *quoi*.** Quand un correctif est subtil, dire
   le symptôme observé et ce qui échouait — c'est ce qui rend ce dépôt relisable.
-- **Chaque pull request incrémente la version** et publie son entrée au changelog, sans passer par
-  « Non publié ». La règle existe parce que deux états différents du service portant le même numéro
-  rendent toute observation faite sur l'instance déployée irrattachable à un état du code. Elle vaut aussi pour un
-  changement purement documentaire.
+- **Le travail se fait directement sur `main`** : pas de branche de développement, pas de pull
+  request. C'est la seule branche du dépôt.
+- **Chaque poussée sur `main` incrémente la version** et publie son entrée au changelog, sans passer
+  par « Non publié ». La règle existe parce que deux états différents du service portant le même
+  numéro rendent toute observation faite sur l'instance déployée irrattachable à un état du code.
+  Elle vaut aussi pour un changement purement documentaire.
+
+  Elle était formulée « chaque pull request » tant que le travail passait par des branches ; le
+  passage au travail direct sur `main` ne l'assouplit pas, il la resserre — il n'y a plus d'étape de
+  pull request pour rappeler l'incrément, et une poussée est immédiatement déployable.
 - Le numéro affiché par l'application est lu depuis `package.json`, jamais dupliqué ailleurs.
 - Relire le **README** à chaque changement de comportement — sa prose, pas seulement ses listes.
   Les tableaux et inventaires sautent aux yeux quand ils sont incomplets ; les phrases qui décrivent
